@@ -228,21 +228,35 @@ func (c *BillingCollector) getUsage() []UsageItem {
 		result = append(result, items...)
 	}
 
+	for _, name := range c.config.Users {
+		items := c.fetchUsageForEntity(ctx, "user", name)
+		result = append(result, items...)
+	}
+
 	return result
 }
 
-// fetchUsageForEntity fetches billing usage for a specific entity (org or enterprise).
+// fetchUsageForEntity fetches billing usage for a specific entity (org, enterprise, or user).
 func (c *BillingCollector) fetchUsageForEntity(ctx context.Context, entity, name string) []UsageItem {
 	var (
 		endpoint string
 		result   []UsageItem
 	)
 
-	if entity == "enterprise" {
+	switch entity {
+	case "enterprise":
 		endpoint = fmt.Sprintf("/enterprises/%s/settings/billing/usage", name)
-	} else {
+	case "user":
+		endpoint = fmt.Sprintf("/users/%s/settings/billing/usage", name)
+	default:
 		endpoint = fmt.Sprintf("/organizations/%s/settings/billing/usage", name)
 	}
+
+	// The Billing API returns a single aggregated entry for the whole billing
+	// history unless a specific year (and month) is provided. Always request
+	// the current month so that the metrics reflect the ongoing billing cycle.
+	now := time.Now().UTC()
+	endpoint = fmt.Sprintf("%s?year=%d&month=%d", endpoint, now.Year(), int(now.Month()))
 
 	req, err := c.client.NewRequest("GET", endpoint, nil)
 
