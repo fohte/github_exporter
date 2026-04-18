@@ -259,6 +259,13 @@ func RootFlags(cfg *config.Config) []cli.Flag {
 			Destination: &cfg.Target.Orgs,
 		},
 		&cli.StringSliceFlag{
+			Name:        "github.user",
+			Value:       []string{},
+			Usage:       "Users to scrape metrics from",
+			Sources:     cli.EnvVars("GITHUB_EXPORTER_USER", "GITHUB_EXPORTER_USERS"),
+			Destination: &cfg.Target.Users,
+		},
+		&cli.StringSliceFlag{
 			Name:        "github.repo",
 			Value:       []string{},
 			Usage:       "Repositories to scrape metrics from",

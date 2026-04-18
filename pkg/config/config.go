@@ -58,6 +58,7 @@ type Target struct {
 	Insecure     bool
 	Enterprises  []string
 	Orgs         []string
+	Users        []string
 	Repos        []string
 	Timeout      time.Duration
 	PerPage      int

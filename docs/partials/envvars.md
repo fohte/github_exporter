@@ -55,6 +55,9 @@ GITHUB_EXPORTER_ENTERPRISE, GITHUB_EXPORTER_ENTERPRISES
 GITHUB_EXPORTER_ORG, GITHUB_EXPORTER_ORGS
 : Organizations to scrape metrics from, comma-separated list
 
+GITHUB_EXPORTER_USER, GITHUB_EXPORTER_USERS
+: Users to scrape metrics from, comma-separated list
+
 GITHUB_EXPORTER_REPO, GITHUB_EXPORTER_REPOS
 : Repositories to scrape metrics from, comma-separated list
 
