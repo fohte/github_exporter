@@ -34,7 +34,7 @@ func NewBillingCollector(logger *slog.Logger, client *github.Client, db store.St
 		failures.WithLabelValues("billing").Add(0)
 	}
 
-	labels := []string{"type", "name", "product", "sku", "unit", "date", "org", "repo"}
+	labels := []string{"type", "name", "product", "sku", "unit", "org", "repo"}
 	return &BillingCollector{
 		client:   client,
 		logger:   logger.With("collector", "billing"),
@@ -98,7 +98,6 @@ func (c *BillingCollector) Describe(ch chan<- *prometheus.Desc) {
 
 // Collect is called by the Prometheus registry when collecting metrics.
 func (c *BillingCollector) Collect(ch chan<- prometheus.Metric) {
-	collected := make(map[string]bool)
 	now := time.Now()
 	usage := c.getUsage()
 	c.duration.WithLabelValues("billing").Observe(time.Since(now).Seconds())
@@ -108,85 +107,121 @@ func (c *BillingCollector) Collect(ch chan<- prometheus.Metric) {
 		"duration", time.Since(now),
 	)
 
-	for _, item := range usage {
-		key := fmt.Sprintf(
-			"%s-%s-%s-%s-%s",
-			item.Type,
-			item.Name,
-			item.Product,
-			item.SKU,
-			item.Date,
-		)
-
-		if collected[key] {
-			c.logger.Debug("Already collected billing usage",
-				"type", item.Type,
-				"name", item.Name,
-				"product", item.Product,
-				"sku", item.SKU,
-				"date", item.Date,
-			)
-
-			continue
-		}
-
-		collected[key] = true
-
+	for key, totals := range aggregateUsage(usage) {
 		c.logger.Debug("Collecting billing usage",
-			"type", item.Type,
-			"name", item.Name,
-			"product", item.Product,
-			"sku", item.SKU,
-			"unit", item.UnitType,
-			"quantity", item.Quantity,
+			"type", key.Type,
+			"name", key.Name,
+			"product", key.Product,
+			"sku", key.SKU,
+			"unit", key.Unit,
+			"quantity", totals.Quantity,
 		)
 
 		labels := []string{
-			item.Type,
-			item.Name,
-			item.Product,
-			item.SKU,
-			item.UnitType,
-			item.Date,
-			item.OrganizationName,
-			item.RepositoryName,
+			key.Type,
+			key.Name,
+			key.Product,
+			key.SKU,
+			key.Unit,
+			key.Org,
+			key.Repo,
 		}
 
 		ch <- prometheus.MustNewConstMetric(
 			c.Usage,
 			prometheus.GaugeValue,
-			item.Quantity,
+			totals.Quantity,
 			labels...,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
 			c.GrossAmount,
 			prometheus.GaugeValue,
-			item.GrossAmount,
+			totals.GrossAmount,
 			labels...,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
 			c.DiscountAmount,
 			prometheus.GaugeValue,
-			item.DiscountAmount,
+			totals.DiscountAmount,
 			labels...,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
 			c.NetAmount,
 			prometheus.GaugeValue,
-			item.NetAmount,
+			totals.NetAmount,
 			labels...,
 		)
 
 		ch <- prometheus.MustNewConstMetric(
 			c.PricePerUnit,
 			prometheus.GaugeValue,
-			item.PricePerUnit,
+			totals.PricePerUnit(),
 			labels...,
 		)
 	}
+}
+
+// billingUsageKey groups usage items that should be aggregated into a single series.
+type billingUsageKey struct {
+	Type    string
+	Name    string
+	Product string
+	SKU     string
+	Unit    string
+	Org     string
+	Repo    string
+}
+
+// billingUsageTotals accumulates the additive fields of usage items sharing a billingUsageKey.
+type billingUsageTotals struct {
+	Quantity       float64
+	GrossAmount    float64
+	DiscountAmount float64
+	NetAmount      float64
+}
+
+// PricePerUnit derives the weighted average price from the aggregated totals,
+// since the per-item unit price can't be summed across usage items directly.
+func (t billingUsageTotals) PricePerUnit() float64 {
+	if t.Quantity == 0 {
+		return 0
+	}
+
+	return t.GrossAmount / t.Quantity
+}
+
+// aggregateUsage sums usage items sharing the same billingUsageKey so that GitHub's
+// per-day billing entries collapse into one series instead of one per date.
+func aggregateUsage(items []UsageItem) map[billingUsageKey]*billingUsageTotals {
+	aggregated := make(map[billingUsageKey]*billingUsageTotals)
+
+	for _, item := range items {
+		key := billingUsageKey{
+			Type:    item.Type,
+			Name:    item.Name,
+			Product: item.Product,
+			SKU:     item.SKU,
+			Unit:    item.UnitType,
+			Org:     item.OrganizationName,
+			Repo:    item.RepositoryName,
+		}
+
+		totals, ok := aggregated[key]
+		if !ok {
+			totals = &billingUsageTotals{}
+			aggregated[key] = totals
+		}
+
+		totals.Quantity += item.Quantity
+		totals.GrossAmount += item.GrossAmount
+		totals.DiscountAmount += item.DiscountAmount
+		totals.NetAmount += item.NetAmount
+	}
+
+	return aggregated
 }
 
 // UsageItem represents a billing usage item from GitHub Enhanced Billing Platform API.
