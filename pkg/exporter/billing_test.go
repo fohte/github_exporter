@@ -52,8 +52,10 @@ func TestAggregateUsage(t *testing.T) {
 	if got, want := totalsA.PricePerUnit(), 10.0; got != want {
 		t.Errorf("expected price per unit %v, got %v", want, got)
 	}
+}
 
-	if empty := (billingUsageTotals{}).PricePerUnit(); empty != 0 {
-		t.Errorf("expected price per unit 0 for zero quantity, got %v", empty)
+func TestBillingUsageTotalsPricePerUnitZeroQuantity(t *testing.T) {
+	if got := (billingUsageTotals{}).PricePerUnit(); got != 0 {
+		t.Errorf("expected price per unit 0 for zero quantity, got %v", got)
 	}
 }
