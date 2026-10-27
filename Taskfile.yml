@@ -42,7 +42,7 @@ tasks:
   test:
     desc: Run tests for server
     cmds:
-      - go test -coverprofile coverage.out {{ .PACKAGES }}
+      - go test -tags sqlite -coverprofile coverage.out {{ .PACKAGES }}
 
   build:
     desc: Build all required binary artifacts

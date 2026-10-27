@@ -256,6 +256,12 @@ github_workflow_job_started_timestamp{owner, repo, name, title, branch, sha, ide
 github_workflow_job_status{owner, repo, name, title, branch, sha, identifier, run_id, run_attempt, labels, runner_id, runner_name, runner_group_id, runner_group_name, workflow_name, conclusion}
 : Status of workflow jobs
 
+github_workflow_run_attempt_health{condition}
+: Workflow run attempt collection health state; condition values are 1 when active or healthy
+
+github_workflow_run_attempts_per_branch_max{repo, workflow, event, window}
+: Maximum number of workflow run attempts for any branch in the time window
+
 github_workflow_run_created_timestamp{owner, repo, workflow, event, name, status, branch, number, run}
 : Timestamp when the workflow run have been created
 

@@ -2,7 +2,48 @@ package store
 
 import (
 	"strconv"
+	"time"
 )
+
+// WorkflowRunAttemptSeriesKey identifies a low-cardinality workflow/event series.
+type WorkflowRunAttemptSeriesKey struct {
+	Owner      string `db:"owner"`
+	Repo       string `db:"repo"`
+	WorkflowID int64  `db:"workflow_id"`
+	Event      string `db:"event"`
+	CreatedAt  int64  `db:"created_at_ns"`
+}
+
+// WorkflowRunAttemptBranchCount contains counts for one branch in both windows.
+type WorkflowRunAttemptBranchCount struct {
+	Owner       string `db:"owner"`
+	Repo        string `db:"repo"`
+	WorkflowID  int64  `db:"workflow_id"`
+	Event       string `db:"event"`
+	Branch      string `db:"branch"`
+	Attempts30m int64  `db:"attempts_30m"`
+	Attempts6h  int64  `db:"attempts_6h"`
+}
+
+// WorkflowRunAttemptSnapshot contains registered series and their recent branch counts.
+type WorkflowRunAttemptSnapshot struct {
+	InitializedAt       time.Time
+	SeriesLimitExceeded bool
+	Series              []WorkflowRunAttemptSeriesKey
+	BranchCounts        []WorkflowRunAttemptBranchCount
+}
+
+// WorkflowRunRecoveryCheckpoint persists pagination state for one matching webhook.
+type WorkflowRunRecoveryCheckpoint struct {
+	Owner           string
+	Repo            string
+	HookID          int64
+	Cursor          string
+	ScanStartedAt   time.Time
+	ScanCutoff      time.Time
+	LastCompletedAt time.Time
+	UpdatedAt       time.Time
+}
 
 // WorkflowRun defines the type returned by GitHub.
 type WorkflowRun struct {

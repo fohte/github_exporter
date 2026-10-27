@@ -31,9 +31,19 @@ type Logs struct {
 
 // WorkflowRuns defines the workflow run specific configuration.
 type WorkflowRuns struct {
-	Window      time.Duration
-	PurgeWindow time.Duration
-	Labels      []string
+	Window           time.Duration
+	PurgeWindow      time.Duration
+	AttemptRetention time.Duration
+	Recovery         WorkflowRunRecovery
+	Labels           []string
+}
+
+// WorkflowRunRecovery defines the optional failed-delivery recovery worker.
+type WorkflowRunRecovery struct {
+	Enabled     bool
+	Interval    time.Duration
+	CallbackURL string
+	MaxPages    int
 }
 
 // WorkflowJobs defines the workflow job specific configuration.

@@ -25,6 +25,14 @@ type Store interface {
 	StoreWorkflowRunEvent(*github.WorkflowRunEvent) error
 	GetWorkflowRuns(time.Duration) ([]*WorkflowRun, error)
 	PruneWorkflowRuns(time.Duration) error
+	StoreWorkflowRunAttemptEvent(*github.WorkflowRunEvent) error
+	GetWorkflowRunAttemptSnapshot(time.Time) (*WorkflowRunAttemptSnapshot, error)
+	PruneWorkflowRunAttempts(time.Duration) error
+
+	GetWorkflowRunRecoveryCheckpoint(string, string, int64) (WorkflowRunRecoveryCheckpoint, error)
+	SaveWorkflowRunRecoveryCheckpoint(WorkflowRunRecoveryCheckpoint) error
+	ReserveWorkflowRunRecoveryDelivery(string, string, int64, string, int64, time.Time) (bool, error)
+	MarkWorkflowRunRecoveryDelivery(string, string, int64, string, int64, time.Time, string) error
 
 	// WorkflowJobEvent
 	StoreWorkflowJobEvent(*github.WorkflowJobEvent) error
