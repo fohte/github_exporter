@@ -220,6 +220,10 @@ func (r *workflowRunRecovery) recoverHook(ctx context.Context, owner, repo strin
 			if delivery.GetEvent() != "workflow_run" || delivery.GetStatus() == "OK" {
 				continue
 			}
+			// A reservation is never retried, so stop before reserving rather than recording a canceled request as failed.
+			if ctx.Err() != nil {
+				return
+			}
 			r.redeliverFailedDelivery(ctx, owner, repo, hookID, delivery)
 		}
 

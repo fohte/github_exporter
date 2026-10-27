@@ -75,24 +75,8 @@ func TestWorkflowRunRecoveryPaginatesMatchingHookAndRedeliversOnce(t *testing.T)
 	defer server.Close()
 	callbackURL = server.URL + "/webhook"
 
-	database := filepath.Join(t.TempDir(), "recovery.sqlite")
-	db, err := store.NewSqliteStore("sqlite://"+database, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Open(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	if err := db.Migrate(); err != nil {
-		t.Fatal(err)
-	}
-
-	client := github.NewClient(server.Client())
-	client.BaseURL, err = url.Parse(server.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := newRecoveryTestStore(t)
+	client := newRecoveryTestClient(t, server)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	health := exporter.NewWorkflowRunHealth(true)
 	cfg := config.Config{
@@ -173,4 +157,90 @@ func healthValue(health *exporter.WorkflowRunHealth, condition string) float64 {
 		}
 	}
 	return -1
+}
+
+func TestWorkflowRunRecoveryStopsBeforeReservingWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var (
+		mu          sync.Mutex
+		redelivered []string
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/example-org/sample-repo/hooks/11/deliveries":
+			writeJSON(t, w, []map[string]any{
+				{"id": 301, "guid": "delivery-canceling", "status": "failed", "event": "workflow_run"},
+				{"id": 302, "guid": "delivery-after-cancel", "status": "failed", "event": "workflow_run"},
+			})
+		case "/repos/example-org/sample-repo/hooks/11/deliveries/301/attempts",
+			"/repos/example-org/sample-repo/hooks/11/deliveries/302/attempts":
+			mu.Lock()
+			redelivered = append(redelivered, r.URL.Path)
+			mu.Unlock()
+			cancel()
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	db := newRecoveryTestStore(t)
+	recovery := workflowRunRecovery{
+		config: config.Config{Target: config.Target{Timeout: time.Second}},
+		db:     db,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		client: newRecoveryTestClient(t, server),
+		health: exporter.NewWorkflowRunHealth(true),
+	}
+
+	recovery.recoverHook(ctx, "example-org", "sample-repo", 11)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(redelivered) != 1 {
+		t.Fatalf("redelivery calls = %#v, want only the call that canceled recovery", redelivered)
+	}
+	reserved, err := db.ReserveWorkflowRunRecoveryDelivery("example-org", "sample-repo", 11, "delivery-after-cancel", 302, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reserved {
+		t.Fatal("delivery after cancellation was reserved and can no longer be redelivered")
+	}
+	checkpoint, err := db.GetWorkflowRunRecoveryCheckpoint("example-org", "sample-repo", 11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !checkpoint.LastCompletedAt.IsZero() {
+		t.Fatalf("checkpoint after cancellation = %#v, want the interrupted page to be scanned again", checkpoint)
+	}
+}
+
+func newRecoveryTestStore(t *testing.T) store.Store {
+	t.Helper()
+	db, err := store.NewSqliteStore("sqlite://"+filepath.Join(t.TempDir(), "recovery.sqlite"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Open(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func newRecoveryTestClient(t *testing.T, server *httptest.Server) *github.Client {
+	t.Helper()
+	client := github.NewClient(server.Client())
+	baseURL, err := url.Parse(server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.BaseURL = baseURL
+	return client
 }
