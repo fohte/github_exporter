@@ -98,7 +98,7 @@ GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_CALLBACK_URL
 : Exact webhook callback URL to check and redeliver
 
 GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_MAX_PAGES
-: Maximum delivery pages to scan per recovery interval, defaults to `10`
+: Maximum delivery pages to scan per matching hook per recovery interval, defaults to `10`
 
 GITHUB_EXPORTER_WORKFLOW_RUNS_LABELS
 : List of labels used for workflows, comma-separated list, defaults to `owner, repo, workflow, event, name, status, branch, number, run`

@@ -359,7 +359,7 @@ func RootFlags(cfg *config.Config) []cli.Flag {
 		&cli.IntFlag{
 			Name:        "collector.workflow_runs.recovery.max_pages",
 			Value:       10,
-			Usage:       "Maximum delivery pages to scan per recovery interval",
+			Usage:       "Maximum delivery pages to scan per matching hook per recovery interval",
 			Sources:     cli.EnvVars("GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_MAX_PAGES"),
 			Destination: &cfg.Target.WorkflowRuns.Recovery.MaxPages,
 		},

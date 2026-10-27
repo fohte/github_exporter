@@ -52,8 +52,10 @@ history is ready. Health condition values are `history_ready`, `database_error`,
 
 GitHub does not automatically retry failed webhook deliveries. The exporter can
 check and redeliver failed `workflow_run` deliveries when recovery is explicitly
-enabled. Set `GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_ENABLED=true` and provide the
-exact configured callback URL through
+enabled. Recovery requires `GITHUB_EXPORTER_COLLECTOR_WORKFLOW_RUNS=true`, and
+the exporter refuses to start without it. Set
+`GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_ENABLED=true` and provide the exact
+configured callback URL through
 `GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_CALLBACK_URL`, for example
 `https://exporter.example.invalid/github`. Recovery is disabled by default and
 runs every five minutes unless `GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_INTERVAL`
@@ -64,9 +66,10 @@ The exporter checks only repositories configured through
 hooks that subscribe to `workflow_run` and have the exact callback URL. A
 delivery GUID is attempted at most once, and scan cursors and retry history are
 stored in the configured database. `GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_MAX_PAGES`
-limits delivery pages read per interval; a nonzero
+limits delivery pages read per matching hook per interval. A nonzero
 `github_workflow_run_attempt_health{condition="recovery_pagination_truncated"}`
-indicates that more pages remain.
+indicates that a delivery scan stopped at that limit with more pages remaining,
+or that a repository search for a wildcard target returned incomplete results.
 
 The GitHub token or App installation needs repository **Webhooks** permission
 with read access to list hooks and deliveries. Redelivery also requires write

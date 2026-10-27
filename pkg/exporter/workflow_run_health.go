@@ -19,7 +19,7 @@ const (
 	WorkflowRunHealthRecoveryPermissionError = "recovery_permission_error"
 	// WorkflowRunHealthRecoveryRateLimit is true when GitHub rate-limited recovery requests.
 	WorkflowRunHealthRecoveryRateLimit = "recovery_rate_limit"
-	// WorkflowRunHealthRecoveryPaginationTrunc is true when a delivery scan hit its page limit.
+	// WorkflowRunHealthRecoveryPaginationTrunc is true when a delivery scan hit its page limit or a repository search was incomplete.
 	WorkflowRunHealthRecoveryPaginationTrunc = "recovery_pagination_truncated"
 	// WorkflowRunHealthRecoveryError is true when recovery failed for another reason.
 	WorkflowRunHealthRecoveryError = "recovery_error"
