@@ -3,7 +3,10 @@ package exporter
 import (
 	"errors"
 	"log/slog"
+	"slices"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/go-github/v84/github"
@@ -21,6 +24,11 @@ type WorkflowRunCollector struct {
 	duration *prometheus.HistogramVec
 	config   config.Target
 	health   *WorkflowRunHealth
+
+	// loggedMaxima keeps the last logged maximum per series and window so the
+	// branch log is written when the maximum changes, not on every scrape.
+	loggedMu     sync.Mutex
+	loggedMaxima map[string]int64
 
 	Status        *prometheus.Desc
 	Duration      *prometheus.Desc
@@ -51,6 +59,8 @@ func NewWorkflowRunCollector(logger *slog.Logger, client *github.Client, db stor
 		duration: duration,
 		config:   cfg,
 		health:   health,
+
+		loggedMaxima: make(map[string]int64),
 
 		Status: prometheus.NewDesc(
 			"github_workflow_run_status",
@@ -294,18 +304,29 @@ func (c *WorkflowRunCollector) emitWorkflowRunAttemptMax(ch chan<- prometheus.Me
 				window.name,
 			}
 			ch <- prometheus.MustNewConstMetric(c.AttemptMax, prometheus.GaugeValue, float64(maximum), labels...)
-			for _, branch := range maxBranches {
-				c.logger.Debug("Maximum workflow run attempts for branch",
+			// A maximum of 1 is a single run per branch, which is not a loop candidate.
+			if c.swapLoggedMaximum(strings.Join(labels, "\x00"), maximum) && maximum > 1 {
+				slices.Sort(maxBranches)
+				c.logger.Info("Workflow run attempts per branch changed",
 					"repo", labels[0],
 					"workflow", labels[1],
 					"event", series.Event,
 					"window", window.name,
-					"branch", branch,
+					"branches", maxBranches,
 					"attempts", maximum,
 				)
 			}
 		}
 	}
+}
+
+// swapLoggedMaximum stores maximum for key and reports whether it differs from the stored value.
+func (c *WorkflowRunCollector) swapLoggedMaximum(key string, maximum int64) bool {
+	c.loggedMu.Lock()
+	defer c.loggedMu.Unlock()
+	previous, ok := c.loggedMaxima[key]
+	c.loggedMaxima[key] = maximum
+	return !ok || previous != maximum
 }
 
 func statusToGauge(conclusion string) float64 {

@@ -1,6 +1,7 @@
 package exporter
 
 import (
+	"bytes"
 	"errors"
 	"log/slog"
 	"os"
@@ -156,6 +157,25 @@ func TestWorkflowRunAttemptCollectorKeepsWebhookDatabaseErrorAfterSuccessfulScra
 	collector.health.SetDatabaseError("webhook", false)
 	if got := databaseError(); got != 0 {
 		t.Fatalf("database_error after webhook recovery = %v, want 0", got)
+	}
+}
+
+func TestWorkflowRunAttemptCollectorLogsRepeatedBranchOnceAtInfo(t *testing.T) {
+	collector := newWorkflowRunAttemptTestCollector(attemptSnapshotStore{snapshot: &store.WorkflowRunAttemptSnapshot{
+		InitializedAt: time.Now().Add(-7 * time.Hour),
+		Series:        []store.WorkflowRunAttemptSeriesKey{{Owner: "example-org", Repo: "sample-repo", WorkflowID: 9, Event: "push"}},
+		BranchCounts: []store.WorkflowRunAttemptBranchCount{
+			{Owner: "example-org", Repo: "sample-repo", WorkflowID: 9, Event: "push", Branch: "topic/looping", Attempts30m: 3, Attempts6h: 3},
+		},
+	}})
+	var logs bytes.Buffer
+	collector.logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	collectWorkflowRunAttemptTestMetrics(collector)
+	collectWorkflowRunAttemptTestMetrics(collector)
+
+	if got := strings.Count(logs.String(), "topic/looping"); got != 2 {
+		t.Fatalf("branch logged %d times over two scrapes, want once per window:\n%s", got, logs.String())
 	}
 }
 
