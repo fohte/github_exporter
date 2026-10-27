@@ -1,6 +1,10 @@
 package exporter
 
-import "sync"
+import (
+	"maps"
+	"slices"
+	"sync"
+)
 
 const (
 	// WorkflowRunHealthHistoryReady is true when the six-hour history is available.
@@ -36,6 +40,9 @@ var workflowRunHealthConditions = []string{
 type WorkflowRunHealth struct {
 	mu     sync.RWMutex
 	states map[string]bool
+	// databaseErrors is keyed by component so one component's success does
+	// not hide another component's failure before the next scrape.
+	databaseErrors map[string]bool
 }
 
 // NewWorkflowRunHealth initializes all fixed health states.
@@ -46,10 +53,10 @@ func NewWorkflowRunHealth(recoveryEnabled bool) *WorkflowRunHealth {
 	}
 	states[WorkflowRunHealthRecoveryEnabled] = recoveryEnabled
 
-	return &WorkflowRunHealth{states: states}
+	return &WorkflowRunHealth{states: states, databaseErrors: make(map[string]bool)}
 }
 
-// Set updates a known health state.
+// Set updates a known health state. Use SetDatabaseError for database_error.
 func (h *WorkflowRunHealth) Set(condition string, value bool) {
 	if h == nil {
 		return
@@ -60,6 +67,17 @@ func (h *WorkflowRunHealth) Set(condition string, value bool) {
 	if _, ok := h.states[condition]; ok {
 		h.states[condition] = value
 	}
+}
+
+// SetDatabaseError records whether the latest database operation of a component failed.
+func (h *WorkflowRunHealth) SetDatabaseError(component string, failed bool) {
+	if h == nil {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.databaseErrors[component] = failed
 }
 
 // Snapshot returns the fixed condition values in stable order.
@@ -79,8 +97,12 @@ func (h *WorkflowRunHealth) Snapshot() []struct {
 		Value     float64
 	}, 0, len(workflowRunHealthConditions))
 	for _, condition := range workflowRunHealthConditions {
+		active := h.states[condition]
+		if condition == WorkflowRunHealthDatabaseError {
+			active = slices.Contains(slices.Collect(maps.Values(h.databaseErrors)), true)
+		}
 		value := 0.0
-		if h.states[condition] {
+		if active {
 			value = 1
 		}
 		result = append(result, struct {

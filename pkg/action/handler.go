@@ -202,7 +202,7 @@ func handler(cfg *config.Config, db store.Store, logger *slog.Logger, client *gi
 					)
 
 					if err := db.StoreWorkflowRunEvent(event); err != nil {
-						health.Set(exporter.WorkflowRunHealthDatabaseError, true)
+						health.SetDatabaseError("webhook", true)
 						logger.Error("Failed to store github event",
 							"type", "workflow_run",
 							"owner", event.GetRepo().GetOwner().GetLogin(),
@@ -220,7 +220,7 @@ func handler(cfg *config.Config, db store.Store, logger *slog.Logger, client *gi
 					}
 					if cfg.Collector.WorkflowRuns {
 						if err := db.StoreWorkflowRunAttemptEvent(event); err != nil {
-							health.Set(exporter.WorkflowRunHealthDatabaseError, true)
+							health.SetDatabaseError("webhook", true)
 							logger.Error("Failed to store workflow run attempt",
 								"owner", event.GetRepo().GetOwner().GetLogin(),
 								"repo", event.GetRepo().GetName(),
@@ -236,6 +236,7 @@ func handler(cfg *config.Config, db store.Store, logger *slog.Logger, client *gi
 							return
 						}
 					}
+					health.SetDatabaseError("webhook", false)
 				case *github.WorkflowJobEvent:
 					wfJob := event.GetWorkflowJob()
 					logger.Debug("received webhook request",

@@ -59,6 +59,7 @@ func (r *workflowRunRecovery) runCycle(ctx context.Context) {
 	r.health.Set(exporter.WorkflowRunHealthRecoveryRateLimit, false)
 	r.health.Set(exporter.WorkflowRunHealthRecoveryPaginationTrunc, false)
 	r.health.Set(exporter.WorkflowRunHealthRecoveryError, false)
+	r.health.SetDatabaseError("recovery", false)
 
 	callbackURL := r.config.Target.WorkflowRuns.Recovery.CallbackURL
 	if callbackURL == "" {
@@ -294,7 +295,7 @@ func (r *workflowRunRecovery) redeliverFailedDelivery(ctx context.Context, owner
 }
 
 func (r *workflowRunRecovery) recordDatabaseError(operation string, err error) {
-	r.health.Set(exporter.WorkflowRunHealthDatabaseError, true)
+	r.health.SetDatabaseError("recovery", true)
 	r.recordRecoveryError(fmt.Errorf("%s: %w", operation, err))
 }
 

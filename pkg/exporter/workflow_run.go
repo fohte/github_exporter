@@ -226,10 +226,10 @@ func (c *WorkflowRunCollector) collectAttemptMetrics(ch chan<- prometheus.Metric
 	snapshot, snapshotErr := c.db.GetWorkflowRunAttemptSnapshot(now)
 	if err := errors.Join(retentionErr, snapshotErr); err != nil {
 		c.logger.Error("Failed to collect workflow run attempts", "err", err)
-		c.health.Set(WorkflowRunHealthDatabaseError, true)
+		c.health.SetDatabaseError("collector", true)
 		c.health.Set(WorkflowRunHealthHistoryReady, false)
 	} else {
-		c.health.Set(WorkflowRunHealthDatabaseError, false)
+		c.health.SetDatabaseError("collector", false)
 		ready := !snapshot.InitializedAt.IsZero() && now.Sub(snapshot.InitializedAt) >= 6*time.Hour
 		c.health.Set(WorkflowRunHealthHistoryReady, ready)
 		c.health.Set(WorkflowRunHealthSeriesLimitExceeded, snapshot.SeriesLimitExceeded)

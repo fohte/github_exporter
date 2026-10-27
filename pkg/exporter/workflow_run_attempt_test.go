@@ -123,6 +123,29 @@ func TestWorkflowRunAttemptCollectorReportsDatabaseFailureWithoutZeroMaxima(t *t
 	}
 }
 
+func TestWorkflowRunAttemptCollectorKeepsWebhookDatabaseErrorAfterSuccessfulScrape(t *testing.T) {
+	collector := newWorkflowRunAttemptTestCollector(attemptSnapshotStore{snapshot: &store.WorkflowRunAttemptSnapshot{}})
+	databaseError := func() float64 {
+		collectWorkflowRunAttemptTestMetrics(collector)
+		for _, state := range collector.health.Snapshot() {
+			if state.Condition == WorkflowRunHealthDatabaseError {
+				return state.Value
+			}
+		}
+		return -1
+	}
+
+	collector.health.SetDatabaseError("webhook", true)
+	if got := databaseError(); got != 1 {
+		t.Fatalf("database_error after webhook failure and successful scrape = %v, want 1", got)
+	}
+
+	collector.health.SetDatabaseError("webhook", false)
+	if got := databaseError(); got != 0 {
+		t.Fatalf("database_error after webhook recovery = %v, want 0", got)
+	}
+}
+
 func newWorkflowRunAttemptTestCollector(db store.Store) *WorkflowRunCollector {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	failures := prometheus.NewCounterVec(prometheus.CounterOpts{Name: "test_attempt_failures_total", Help: "Test failures"}, []string{"type"})
