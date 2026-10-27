@@ -277,7 +277,7 @@ func getWorkflowRunRecoveryCheckpoint(handle *sqlx.DB, owner, repo string, hookI
 	checkpoint := WorkflowRunRecoveryCheckpoint{Owner: owner, Repo: repo, HookID: hookID}
 	key := workflowRunHash(owner, repo, strconv.FormatInt(hookID, 10))
 	var record struct {
-		Cursor            string `db:"cursor"`
+		Cursor            string `db:"scan_cursor"`
 		ScanStartedAtNS   int64  `db:"scan_started_at_ns"`
 		ScanCutoffNS      int64  `db:"scan_cutoff_ns"`
 		LastCompletedAtNS int64  `db:"last_completed_at_ns"`
@@ -285,7 +285,7 @@ func getWorkflowRunRecoveryCheckpoint(handle *sqlx.DB, owner, repo string, hookI
 	}
 	if err := handle.Get(
 		&record,
-		handle.Rebind(`SELECT cursor, scan_started_at_ns, scan_cutoff_ns, last_completed_at_ns, updated_at_ns
+		handle.Rebind(`SELECT scan_cursor, scan_started_at_ns, scan_cutoff_ns, last_completed_at_ns, updated_at_ns
 			FROM workflow_run_recovery_checkpoints WHERE checkpoint_key = ?`),
 		key,
 	); err != nil {
@@ -334,7 +334,7 @@ func saveWorkflowRunRecoveryCheckpoint(handle *sqlx.DB, checkpoint WorkflowRunRe
 	if err == nil {
 		if _, err := tx.Exec(
 			tx.Rebind(`UPDATE workflow_run_recovery_checkpoints
-				SET cursor = ?, scan_started_at_ns = ?, scan_cutoff_ns = ?, last_completed_at_ns = ?, updated_at_ns = ?
+				SET scan_cursor = ?, scan_started_at_ns = ?, scan_cutoff_ns = ?, last_completed_at_ns = ?, updated_at_ns = ?
 				WHERE checkpoint_key = ?`),
 			values...,
 		); err != nil {
@@ -343,7 +343,7 @@ func saveWorkflowRunRecoveryCheckpoint(handle *sqlx.DB, checkpoint WorkflowRunRe
 	} else if errors.Is(err, sql.ErrNoRows) {
 		_, err = tx.Exec(
 			tx.Rebind(`INSERT INTO workflow_run_recovery_checkpoints (
-				checkpoint_key, owner, repo, hook_id, cursor, scan_started_at_ns, scan_cutoff_ns, last_completed_at_ns, updated_at_ns
+				checkpoint_key, owner, repo, hook_id, scan_cursor, scan_started_at_ns, scan_cutoff_ns, last_completed_at_ns, updated_at_ns
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 			key,
 			checkpoint.Owner,

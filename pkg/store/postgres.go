@@ -127,7 +127,7 @@ var (
 				owner TEXT NOT NULL,
 				repo TEXT NOT NULL,
 				hook_id BIGINT NOT NULL,
-				cursor TEXT NOT NULL,
+				scan_cursor TEXT NOT NULL,
 				scan_started_at_ns BIGINT NOT NULL,
 				scan_cutoff_ns BIGINT NOT NULL,
 				last_completed_at_ns BIGINT NOT NULL,
