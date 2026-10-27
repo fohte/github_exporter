@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,31 +72,43 @@ func TestWorkflowRunAttemptCollectorEmitsMaximaAndKnownZeroSeries(t *testing.T) 
 }
 
 func TestWorkflowRunAttemptCollectorEmitsOnlyWindowsCoveredByHistory(t *testing.T) {
-	now := time.Now().UTC()
-	collector := newWorkflowRunAttemptTestCollector(attemptSnapshotStore{snapshot: &store.WorkflowRunAttemptSnapshot{
-		InitializedAt: now.Add(-time.Hour),
-		Series:        []store.WorkflowRunAttemptSeriesKey{{Owner: "example-org", Repo: "sample-repo", WorkflowID: 9, Event: "push"}},
-	}})
-
-	metrics := collectWorkflowRunAttemptTestMetrics(collector)
-	windows := make([]string, 0)
-	ready := -1.0
-	for _, metric := range metrics {
-		var sample dto.Metric
-		if err := metric.Write(&sample); err != nil {
-			t.Fatal(err)
-		}
-		for _, label := range sample.GetLabel() {
-			if label.GetName() == "window" {
-				windows = append(windows, label.GetValue())
-			}
-			if label.GetName() == "condition" && label.GetValue() == WorkflowRunHealthHistoryReady {
-				ready = sample.GetGauge().GetValue()
-			}
-		}
+	tests := []struct {
+		history time.Duration
+		windows string
+		ready   float64
+	}{
+		{history: 29 * time.Minute, windows: "", ready: 0},
+		{history: 31 * time.Minute, windows: "30m", ready: 0},
+		{history: 6*time.Hour - time.Minute, windows: "30m", ready: 0},
+		{history: 6*time.Hour + time.Minute, windows: "30m,6h", ready: 1},
 	}
-	if len(windows) != 1 || windows[0] != "30m" || ready != 0 {
-		t.Fatalf("one hour of history emitted windows %v and history_6h_ready=%v, want only 30m and 0", windows, ready)
+	for _, tt := range tests {
+		t.Run(tt.history.String(), func(t *testing.T) {
+			collector := newWorkflowRunAttemptTestCollector(attemptSnapshotStore{snapshot: &store.WorkflowRunAttemptSnapshot{
+				InitializedAt: time.Now().Add(-tt.history),
+				Series:        []store.WorkflowRunAttemptSeriesKey{{Owner: "example-org", Repo: "sample-repo", WorkflowID: 9, Event: "push"}},
+			}})
+
+			windows := make([]string, 0)
+			ready := -1.0
+			for _, metric := range collectWorkflowRunAttemptTestMetrics(collector) {
+				var sample dto.Metric
+				if err := metric.Write(&sample); err != nil {
+					t.Fatal(err)
+				}
+				for _, label := range sample.GetLabel() {
+					if label.GetName() == "window" {
+						windows = append(windows, label.GetValue())
+					}
+					if label.GetName() == "condition" && label.GetValue() == WorkflowRunHealthHistoryReady {
+						ready = sample.GetGauge().GetValue()
+					}
+				}
+			}
+			if strings.Join(windows, ",") != tt.windows || ready != tt.ready {
+				t.Fatalf("windows = %v and history_6h_ready = %v, want %q and %v", windows, ready, tt.windows, tt.ready)
+			}
+		})
 	}
 }
 
