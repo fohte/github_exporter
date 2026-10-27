@@ -222,8 +222,8 @@ func (c *WorkflowRunCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 func (c *WorkflowRunCollector) collectAttemptMetrics(ch chan<- prometheus.Metric, now time.Time) {
-	retentionErr := c.db.PruneWorkflowRunAttempts(c.config.WorkflowRuns.AttemptRetention)
 	snapshot, snapshotErr := c.db.GetWorkflowRunAttemptSnapshot(now)
+	retentionErr := c.db.PruneWorkflowRunAttempts(c.config.WorkflowRuns.AttemptRetention)
 	if err := errors.Join(retentionErr, snapshotErr); err != nil {
 		c.logger.Error("Failed to collect workflow run attempts", "err", err)
 		c.health.SetDatabaseError("collector", true)
