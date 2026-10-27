@@ -68,8 +68,10 @@ is set.
 The exporter checks only repositories configured through
 `GITHUB_EXPORTER_REPOS`. It redelivers deliveries only for active repository
 hooks that subscribe to `workflow_run` and have the exact callback URL. A
-delivery GUID is attempted at most once, and scan cursors and retry history are
-stored in the configured database. `GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_MAX_PAGES`
+delivery GUID is attempted at most once; if the redelivery fails again,
+`github_workflow_run_attempt_health{condition="recovery_error"}` turns 1 instead
+of retrying. Scan cursors and retry history are stored in the configured
+database. `GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_MAX_PAGES`
 limits delivery pages read per matching hook per interval. A nonzero
 `github_workflow_run_attempt_health{condition="recovery_pagination_truncated"}`
 indicates that a delivery scan stopped at that limit with more pages remaining,

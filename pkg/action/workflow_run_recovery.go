@@ -264,6 +264,10 @@ func (r *workflowRunRecovery) redeliverFailedDelivery(ctx context.Context, owner
 		return
 	}
 	if !reserved {
+		// GitHub records a redelivery as a new delivery with the same GUID, so a failed one means the redelivery itself failed.
+		if delivery.GetRedelivery() {
+			r.recordRecoveryError(fmt.Errorf("redelivered workflow_run delivery %s failed again", guid))
+		}
 		return
 	}
 
