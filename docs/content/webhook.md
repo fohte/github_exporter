@@ -43,8 +43,10 @@ successfully.
 `github_workflow_run_attempts_per_branch_max` has `repo`, `workflow`, `event`,
 and `window` labels. `repo` is the full repository name, `workflow` is the
 workflow ID, and `window` is `30m` or `6h`; branch details are available in
-debug logs and do not add metric series. The gauge is emitted after the six-hour
-history is ready. Health condition values are `history_ready`, `database_error`,
+debug logs and do not add metric series. Each window is emitted once the
+exporter has recorded history for that long, so the `6h` window starts six hours
+after the first start or a database loss and `history_6h_ready` turns 1. Health
+condition values are `history_6h_ready`, `database_error`,
 `series_limit_exceeded`, `recovery_enabled`, `recovery_permission_error`,
 `recovery_rate_limit`, `recovery_pagination_truncated`, and `recovery_error`.
 

@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	// WorkflowRunHealthHistoryReady is true when the six-hour history is available.
-	WorkflowRunHealthHistoryReady = "history_ready"
+	// WorkflowRunHealthHistoryReady is true when the 6h window has a full history; the 30m window needs only 30 minutes.
+	WorkflowRunHealthHistoryReady = "history_6h_ready"
 	// WorkflowRunHealthDatabaseError is true when a database operation failed.
 	WorkflowRunHealthDatabaseError = "database_error"
 	// WorkflowRunHealthSeriesLimitExceeded is true after the persistent registry reaches its cap.

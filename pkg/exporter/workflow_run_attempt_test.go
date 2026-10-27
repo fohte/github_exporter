@@ -70,7 +70,7 @@ func TestWorkflowRunAttemptCollectorEmitsMaximaAndKnownZeroSeries(t *testing.T) 
 	}
 }
 
-func TestWorkflowRunAttemptCollectorHidesPartialHistory(t *testing.T) {
+func TestWorkflowRunAttemptCollectorEmitsOnlyWindowsCoveredByHistory(t *testing.T) {
 	now := time.Now().UTC()
 	collector := newWorkflowRunAttemptTestCollector(attemptSnapshotStore{snapshot: &store.WorkflowRunAttemptSnapshot{
 		InitializedAt: now.Add(-time.Hour),
@@ -78,7 +78,7 @@ func TestWorkflowRunAttemptCollectorHidesPartialHistory(t *testing.T) {
 	}})
 
 	metrics := collectWorkflowRunAttemptTestMetrics(collector)
-	maxima := 0
+	windows := make([]string, 0)
 	ready := -1.0
 	for _, metric := range metrics {
 		var sample dto.Metric
@@ -87,15 +87,15 @@ func TestWorkflowRunAttemptCollectorHidesPartialHistory(t *testing.T) {
 		}
 		for _, label := range sample.GetLabel() {
 			if label.GetName() == "window" {
-				maxima++
+				windows = append(windows, label.GetValue())
 			}
 			if label.GetName() == "condition" && label.GetValue() == WorkflowRunHealthHistoryReady {
 				ready = sample.GetGauge().GetValue()
 			}
 		}
 	}
-	if maxima != 0 || ready != 0 {
-		t.Fatalf("partial history emitted %d maxima and history_ready=%v", maxima, ready)
+	if len(windows) != 1 || windows[0] != "30m" || ready != 0 {
+		t.Fatalf("one hour of history emitted windows %v and history_6h_ready=%v, want only 30m and 0", windows, ready)
 	}
 }
 

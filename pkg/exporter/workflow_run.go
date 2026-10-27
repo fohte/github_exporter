@@ -230,12 +230,13 @@ func (c *WorkflowRunCollector) collectAttemptMetrics(ch chan<- prometheus.Metric
 		c.health.Set(WorkflowRunHealthHistoryReady, false)
 	} else {
 		c.health.SetDatabaseError("collector", false)
-		ready := !snapshot.InitializedAt.IsZero() && now.Sub(snapshot.InitializedAt) >= 6*time.Hour
-		c.health.Set(WorkflowRunHealthHistoryReady, ready)
-		c.health.Set(WorkflowRunHealthSeriesLimitExceeded, snapshot.SeriesLimitExceeded)
-		if ready {
-			c.emitWorkflowRunAttemptMax(ch, snapshot)
+		var history time.Duration
+		if !snapshot.InitializedAt.IsZero() {
+			history = now.Sub(snapshot.InitializedAt)
 		}
+		c.health.Set(WorkflowRunHealthHistoryReady, history >= 6*time.Hour)
+		c.health.Set(WorkflowRunHealthSeriesLimitExceeded, snapshot.SeriesLimitExceeded)
+		c.emitWorkflowRunAttemptMax(ch, snapshot, history)
 	}
 
 	for _, state := range c.health.Snapshot() {
@@ -243,7 +244,7 @@ func (c *WorkflowRunCollector) collectAttemptMetrics(ch chan<- prometheus.Metric
 	}
 }
 
-func (c *WorkflowRunCollector) emitWorkflowRunAttemptMax(ch chan<- prometheus.Metric, snapshot *store.WorkflowRunAttemptSnapshot) {
+func (c *WorkflowRunCollector) emitWorkflowRunAttemptMax(ch chan<- prometheus.Metric, snapshot *store.WorkflowRunAttemptSnapshot, history time.Duration) {
 	type seriesKey struct {
 		owner      string
 		repo       string
@@ -264,11 +265,16 @@ func (c *WorkflowRunCollector) emitWorkflowRunAttemptMax(ch chan<- prometheus.Me
 		branches := counts[key]
 		for _, window := range []struct {
 			name string
+			size time.Duration
 			get  func(store.WorkflowRunAttemptBranchCount) int64
 		}{
-			{name: "30m", get: func(row store.WorkflowRunAttemptBranchCount) int64 { return row.Attempts30m }},
-			{name: "6h", get: func(row store.WorkflowRunAttemptBranchCount) int64 { return row.Attempts6h }},
+			{name: "30m", size: 30 * time.Minute, get: func(row store.WorkflowRunAttemptBranchCount) int64 { return row.Attempts30m }},
+			{name: "6h", size: 6 * time.Hour, get: func(row store.WorkflowRunAttemptBranchCount) int64 { return row.Attempts6h }},
 		} {
+			// A window shorter than the recorded history would report a falsely low maximum.
+			if history < window.size {
+				continue
+			}
 			var maximum int64
 			maxBranches := make([]string, 0)
 			for branch, row := range branches {
