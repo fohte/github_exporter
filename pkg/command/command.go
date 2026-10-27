@@ -328,6 +328,13 @@ func RootFlags(cfg *config.Config) []cli.Flag {
 			Sources:     cli.EnvVars("GITHUB_EXPORTER_WORKFLOW_RUNS_PURGE_WINDOW"),
 			Destination: &cfg.Target.WorkflowRuns.PurgeWindow,
 		},
+		&cli.DurationFlag{
+			Name:        "collector.workflow_runs.attempt_retention",
+			Value:       24 * time.Hour,
+			Usage:       "History window for keeping workflow run attempts (minimum 6h)",
+			Sources:     cli.EnvVars("GITHUB_EXPORTER_WORKFLOW_RUN_ATTEMPTS_RETENTION"),
+			Destination: &cfg.Target.WorkflowRuns.AttemptRetention,
+		},
 		&cli.StringSliceFlag{
 			Name:        "collector.workflow_runs.labels",
 			Value:       config.RunLabels(),

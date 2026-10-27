@@ -15,7 +15,7 @@ import (
 	"github.com/promhippie/github_exporter/pkg/store"
 )
 
-func handler(cfg *config.Config, db store.Store, logger *slog.Logger, client *github.Client) *chi.Mux {
+func handler(cfg *config.Config, db store.Store, logger *slog.Logger, client *github.Client, health *exporter.WorkflowRunHealth) *chi.Mux {
 	mux := chi.NewRouter()
 	mux.Use(middleware.Recoverer(logger))
 	mux.Use(middleware.RealIP)
@@ -101,6 +101,7 @@ func handler(cfg *config.Config, db store.Store, logger *slog.Logger, client *gi
 			requestFailures,
 			requestDuration,
 			cfg.Target,
+			health,
 		))
 	}
 
@@ -201,6 +202,7 @@ func handler(cfg *config.Config, db store.Store, logger *slog.Logger, client *gi
 					)
 
 					if err := db.StoreWorkflowRunEvent(event); err != nil {
+						health.Set(exporter.WorkflowRunHealthDatabaseError, true)
 						logger.Error("Failed to store github event",
 							"type", "workflow_run",
 							"owner", event.GetRepo().GetOwner().GetLogin(),
@@ -215,6 +217,24 @@ func handler(cfg *config.Config, db store.Store, logger *slog.Logger, client *gi
 
 						_, _ = io.WriteString(w, http.StatusText(http.StatusInternalServerError))
 						return
+					}
+					if cfg.Collector.WorkflowRuns {
+						if err := db.StoreWorkflowRunAttemptEvent(event); err != nil {
+							health.Set(exporter.WorkflowRunHealthDatabaseError, true)
+							logger.Error("Failed to store workflow run attempt",
+								"owner", event.GetRepo().GetOwner().GetLogin(),
+								"repo", event.GetRepo().GetName(),
+								"workflow", wfRun.GetWorkflowID(),
+								"number", wfRun.GetRunNumber(),
+								"error", err,
+							)
+
+							w.Header().Set("Content-Type", "text/plain")
+							w.WriteHeader(http.StatusInternalServerError)
+
+							_, _ = io.WriteString(w, http.StatusText(http.StatusInternalServerError))
+							return
+						}
 					}
 				case *github.WorkflowJobEvent:
 					wfJob := event.GetWorkflowJob()

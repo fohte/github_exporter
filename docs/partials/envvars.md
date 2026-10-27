@@ -85,6 +85,9 @@ GITHUB_EXPORTER_WORKFLOW_RUNS_WINDOW
 GITHUB_EXPORTER_WORKFLOW_RUNS_PURGE_WINDOW
 : History window for keeping data in database. Defaults to the query window, defaults to `24h0m0s`
 
+GITHUB_EXPORTER_WORKFLOW_RUN_ATTEMPTS_RETENTION
+: History window for keeping workflow run attempts (minimum 6h), defaults to `24h0m0s`
+
 GITHUB_EXPORTER_WORKFLOW_RUNS_LABELS
 : List of labels used for workflows, comma-separated list, defaults to `owner, repo, workflow, event, name, status, branch, number, run`
 

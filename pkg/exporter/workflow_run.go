@@ -1,7 +1,9 @@
 package exporter
 
 import (
+	"errors"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/google/go-github/v84/github"
@@ -18,22 +20,29 @@ type WorkflowRunCollector struct {
 	failures *prometheus.CounterVec
 	duration *prometheus.HistogramVec
 	config   config.Target
+	health   *WorkflowRunHealth
 
-	Status   *prometheus.Desc
-	Duration *prometheus.Desc
-	Creation *prometheus.Desc
-	Created  *prometheus.Desc
-	Updated  *prometheus.Desc
-	Started  *prometheus.Desc
+	Status        *prometheus.Desc
+	Duration      *prometheus.Desc
+	Creation      *prometheus.Desc
+	Created       *prometheus.Desc
+	Updated       *prometheus.Desc
+	Started       *prometheus.Desc
+	AttemptMax    *prometheus.Desc
+	AttemptHealth *prometheus.Desc
 }
 
 // NewWorkflowRunCollector returns a new WorkflowRunCollector.
-func NewWorkflowRunCollector(logger *slog.Logger, client *github.Client, db store.Store, failures *prometheus.CounterVec, duration *prometheus.HistogramVec, cfg config.Target) *WorkflowRunCollector {
+func NewWorkflowRunCollector(logger *slog.Logger, client *github.Client, db store.Store, failures *prometheus.CounterVec, duration *prometheus.HistogramVec, cfg config.Target, sharedHealth ...*WorkflowRunHealth) *WorkflowRunCollector {
 	if failures != nil {
 		failures.WithLabelValues("action").Add(0)
 	}
 
 	labels := cfg.WorkflowRuns.Labels
+	health := NewWorkflowRunHealth()
+	if len(sharedHealth) > 0 && sharedHealth[0] != nil {
+		health = sharedHealth[0]
+	}
 	return &WorkflowRunCollector{
 		client:   client,
 		logger:   logger.With("collector", "workflow_run"),
@@ -41,6 +50,7 @@ func NewWorkflowRunCollector(logger *slog.Logger, client *github.Client, db stor
 		failures: failures,
 		duration: duration,
 		config:   cfg,
+		health:   health,
 
 		Status: prometheus.NewDesc(
 			"github_workflow_run_status",
@@ -78,6 +88,18 @@ func NewWorkflowRunCollector(logger *slog.Logger, client *github.Client, db stor
 			labels,
 			nil,
 		),
+		AttemptMax: prometheus.NewDesc(
+			"github_workflow_run_attempts_per_branch_max",
+			"Maximum number of workflow run attempts for any branch in the time window",
+			[]string{"repo", "workflow", "event", "window"},
+			nil,
+		),
+		AttemptHealth: prometheus.NewDesc(
+			"github_workflow_run_attempt_health",
+			"Workflow run attempt collection health state; condition values are 1 when active or healthy",
+			[]string{"condition"},
+			nil,
+		),
 	}
 }
 
@@ -90,6 +112,8 @@ func (c *WorkflowRunCollector) Metrics() []*prometheus.Desc {
 		c.Created,
 		c.Updated,
 		c.Started,
+		c.AttemptMax,
+		c.AttemptHealth,
 	}
 }
 
@@ -101,6 +125,8 @@ func (c *WorkflowRunCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.Created
 	ch <- c.Updated
 	ch <- c.Started
+	ch <- c.AttemptMax
+	ch <- c.AttemptHealth
 }
 
 // Collect is called by the Prometheus registry when collecting metrics.
@@ -123,6 +149,7 @@ func (c *WorkflowRunCollector) Collect(ch chan<- prometheus.Metric) {
 		)
 
 		c.failures.WithLabelValues("workflow_run").Inc()
+		c.collectAttemptMetrics(ch, time.Now())
 		return
 	}
 
@@ -189,6 +216,89 @@ func (c *WorkflowRunCollector) Collect(ch chan<- prometheus.Metric) {
 			float64(record.StartedAt),
 			labels...,
 		)
+	}
+
+	c.collectAttemptMetrics(ch, now)
+}
+
+func (c *WorkflowRunCollector) collectAttemptMetrics(ch chan<- prometheus.Metric, now time.Time) {
+	retentionErr := c.db.PruneWorkflowRunAttempts(c.config.WorkflowRuns.AttemptRetention)
+	snapshot, snapshotErr := c.db.GetWorkflowRunAttemptSnapshot(now)
+	if err := errors.Join(retentionErr, snapshotErr); err != nil {
+		c.logger.Error("Failed to collect workflow run attempts", "err", err)
+		c.health.Set(WorkflowRunHealthDatabaseError, true)
+		c.health.Set(WorkflowRunHealthHistoryReady, false)
+	} else {
+		c.health.Set(WorkflowRunHealthDatabaseError, false)
+		ready := !snapshot.InitializedAt.IsZero() && now.Sub(snapshot.InitializedAt) >= 6*time.Hour
+		c.health.Set(WorkflowRunHealthHistoryReady, ready)
+		c.health.Set(WorkflowRunHealthSeriesLimitExceeded, snapshot.SeriesLimitExceeded)
+		if ready {
+			c.emitWorkflowRunAttemptMax(ch, snapshot)
+		}
+	}
+
+	for _, state := range c.health.Snapshot() {
+		ch <- prometheus.MustNewConstMetric(c.AttemptHealth, prometheus.GaugeValue, state.Value, state.Condition)
+	}
+}
+
+func (c *WorkflowRunCollector) emitWorkflowRunAttemptMax(ch chan<- prometheus.Metric, snapshot *store.WorkflowRunAttemptSnapshot) {
+	type seriesKey struct {
+		owner      string
+		repo       string
+		workflowID int64
+		event      string
+	}
+	counts := make(map[seriesKey]map[string]store.WorkflowRunAttemptBranchCount)
+	for _, row := range snapshot.BranchCounts {
+		key := seriesKey{owner: row.Owner, repo: row.Repo, workflowID: row.WorkflowID, event: row.Event}
+		if counts[key] == nil {
+			counts[key] = make(map[string]store.WorkflowRunAttemptBranchCount)
+		}
+		counts[key][row.Branch] = row
+	}
+
+	for _, series := range snapshot.Series {
+		key := seriesKey{owner: series.Owner, repo: series.Repo, workflowID: series.WorkflowID, event: series.Event}
+		branches := counts[key]
+		for _, window := range []struct {
+			name string
+			get  func(store.WorkflowRunAttemptBranchCount) int64
+		}{
+			{name: "30m", get: func(row store.WorkflowRunAttemptBranchCount) int64 { return row.Attempts30m }},
+			{name: "6h", get: func(row store.WorkflowRunAttemptBranchCount) int64 { return row.Attempts6h }},
+		} {
+			var maximum int64
+			maxBranches := make([]string, 0)
+			for branch, row := range branches {
+				value := window.get(row)
+				if value > maximum {
+					maximum = value
+					maxBranches = []string{branch}
+				} else if value > 0 && value == maximum {
+					maxBranches = append(maxBranches, branch)
+				}
+			}
+
+			labels := []string{
+				series.Owner + "/" + series.Repo,
+				strconv.FormatInt(series.WorkflowID, 10),
+				series.Event,
+				window.name,
+			}
+			ch <- prometheus.MustNewConstMetric(c.AttemptMax, prometheus.GaugeValue, float64(maximum), labels...)
+			for _, branch := range maxBranches {
+				c.logger.Debug("Maximum workflow run attempts for branch",
+					"repo", labels[0],
+					"workflow", labels[1],
+					"event", series.Event,
+					"window", window.name,
+					"branch", branch,
+					"attempts", maximum,
+				)
+			}
+		}
 	}
 }
 

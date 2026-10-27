@@ -31,9 +31,10 @@ type Logs struct {
 
 // WorkflowRuns defines the workflow run specific configuration.
 type WorkflowRuns struct {
-	Window      time.Duration
-	PurgeWindow time.Duration
-	Labels      []string
+	Window           time.Duration
+	PurgeWindow      time.Duration
+	AttemptRetention time.Duration
+	Labels           []string
 }
 
 // WorkflowJobs defines the workflow job specific configuration.

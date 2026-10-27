@@ -37,3 +37,12 @@ configured the exporter, mentioned above.
 After hitting the **Add webhook** button you are ready to receive first webhooks
 by GitHub. It should also show that the initial test webhook have been executed
 successfully.
+
+### Workflow run attempts per branch
+
+`github_workflow_run_attempts_per_branch_max` has `repo`, `workflow`, `event`,
+and `window` labels. `repo` is the full repository name, `workflow` is the
+workflow ID, and `window` is `30m` or `6h`; branch details are available in
+debug logs and do not add metric series. The gauge is emitted after the six-hour
+history is ready. Health condition values are `history_ready`, `database_error`,
+and `series_limit_exceeded`.

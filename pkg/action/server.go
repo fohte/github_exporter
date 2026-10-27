@@ -15,6 +15,7 @@ import (
 	"github.com/oklog/run"
 	"github.com/prometheus/exporter-toolkit/web"
 	"github.com/promhippie/github_exporter/pkg/config"
+	"github.com/promhippie/github_exporter/pkg/exporter"
 	"github.com/promhippie/github_exporter/pkg/store"
 	"github.com/promhippie/github_exporter/pkg/version"
 	"golang.org/x/oauth2"
@@ -36,11 +37,12 @@ func Server(cfg *config.Config, db store.Store, logger *slog.Logger) error {
 	}
 
 	var gr run.Group
+	health := exporter.NewWorkflowRunHealth()
 
 	{
 		server := &http.Server{
 			Addr:         cfg.Server.Addr,
-			Handler:      handler(cfg, db, logger, client),
+			Handler:      handler(cfg, db, logger, client, health),
 			ReadTimeout:  5 * time.Second,
 			WriteTimeout: cfg.Server.Timeout,
 		}
