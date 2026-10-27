@@ -218,6 +218,89 @@ func TestWorkflowRunRecoveryStopsBeforeReservingWhenCanceled(t *testing.T) {
 	}
 }
 
+func TestWorkflowRunRecoveryClassifiesGitHubAPIErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    int
+		headers   map[string]string
+		body      string
+		condition string
+	}{
+		{
+			name:      "permission denied",
+			status:    http.StatusForbidden,
+			body:      `{"message":"Resource not accessible by integration"}`,
+			condition: exporter.WorkflowRunHealthRecoveryPermissionError,
+		},
+		{
+			name:      "primary rate limit",
+			status:    http.StatusForbidden,
+			headers:   map[string]string{"X-RateLimit-Remaining": "0"},
+			body:      `{"message":"API rate limit exceeded"}`,
+			condition: exporter.WorkflowRunHealthRecoveryRateLimit,
+		},
+		{
+			name:      "secondary rate limit",
+			status:    http.StatusTooManyRequests,
+			body:      `{"message":"You have exceeded a secondary rate limit","documentation_url":"https://docs.github.com/rest/using-the-rest-api/rate-limits-for-the-rest-api#about-secondary-rate-limits"}`,
+			condition: exporter.WorkflowRunHealthRecoveryRateLimit,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/repos/example-org/sample-repo":
+					writeJSON(t, w, map[string]any{
+						"id":        1,
+						"name":      "sample-repo",
+						"full_name": "example-org/sample-repo",
+						"owner":     map[string]string{"login": "example-org"},
+					})
+				case "/repos/example-org/sample-repo/hooks":
+					for name, value := range tt.headers {
+						w.Header().Set(name, value)
+					}
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(tt.status)
+					_, _ = io.WriteString(w, tt.body)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			health := exporter.NewWorkflowRunHealth(true)
+			recovery := workflowRunRecovery{
+				config: config.Config{Target: config.Target{
+					Repos:        []string{"example-org/sample-repo"},
+					Timeout:      time.Second,
+					WorkflowRuns: config.WorkflowRuns{Recovery: config.WorkflowRunRecovery{CallbackURL: server.URL + "/webhook"}},
+				}},
+				logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+				client: newRecoveryTestClient(t, server),
+				health: health,
+			}
+
+			recovery.runCycle(context.Background())
+
+			for _, condition := range []string{
+				exporter.WorkflowRunHealthRecoveryPermissionError,
+				exporter.WorkflowRunHealthRecoveryRateLimit,
+				exporter.WorkflowRunHealthRecoveryError,
+			} {
+				want := 0.0
+				if condition == tt.condition {
+					want = 1
+				}
+				if got := healthValue(health, condition); got != want {
+					t.Errorf("%s = %v, want %v", condition, got, want)
+				}
+			}
+		})
+	}
+}
+
 func newRecoveryTestStore(t *testing.T) store.Store {
 	t.Helper()
 	db, err := store.NewSqliteStore("sqlite://"+filepath.Join(t.TempDir(), "recovery.sqlite"), slog.New(slog.NewTextHandler(io.Discard, nil)))
