@@ -42,8 +42,9 @@ successfully.
 
 `github_workflow_run_attempts_per_branch_max` has `repo`, `workflow`, `event`,
 and `window` labels. `repo` is the full repository name, `workflow` is the
-workflow ID, and `window` is `30m` or `6h`; branch details are available in
-debug logs and do not add metric series. Each window is emitted once the attempt
+workflow ID, and `window` is `30m` or `6h`. When a maximum above 1 or its
+branches change, the branches are logged at info level instead of adding metric
+series. Each window is emitted once the attempt
 history has existed for that long, counted from when the exporter first
 initialized it in the database, so after the first start or a database loss the
 `30m` window appears after 30 minutes and the `6h` window after six hours.

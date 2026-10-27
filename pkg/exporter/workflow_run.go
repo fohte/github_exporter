@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strconv"
@@ -25,10 +26,10 @@ type WorkflowRunCollector struct {
 	config   config.Target
 	health   *WorkflowRunHealth
 
-	// loggedMaxima keeps the last logged maximum per series and window so the
-	// branch log is written when the maximum changes, not on every scrape.
+	// loggedMaxima keeps the last logged maximum and its branches per series and
+	// window so the branch log is written when either changes, not on every scrape.
 	loggedMu     sync.Mutex
-	loggedMaxima map[string]int64
+	loggedMaxima map[string]string
 
 	Status        *prometheus.Desc
 	Duration      *prometheus.Desc
@@ -60,7 +61,7 @@ func NewWorkflowRunCollector(logger *slog.Logger, client *github.Client, db stor
 		config:   cfg,
 		health:   health,
 
-		loggedMaxima: make(map[string]int64),
+		loggedMaxima: make(map[string]string),
 
 		Status: prometheus.NewDesc(
 			"github_workflow_run_status",
@@ -305,8 +306,8 @@ func (c *WorkflowRunCollector) emitWorkflowRunAttemptMax(ch chan<- prometheus.Me
 			}
 			ch <- prometheus.MustNewConstMetric(c.AttemptMax, prometheus.GaugeValue, float64(maximum), labels...)
 			// A maximum of 1 is a single run per branch, which is not a loop candidate.
-			if c.swapLoggedMaximum(strings.Join(labels, "\x00"), maximum) && maximum > 1 {
-				slices.Sort(maxBranches)
+			slices.Sort(maxBranches)
+			if c.swapLoggedMaximum(strings.Join(labels, "\x00"), fmt.Sprint(maximum, maxBranches)) && maximum > 1 {
 				c.logger.Info("Workflow run attempts per branch changed",
 					"repo", labels[0],
 					"workflow", labels[1],
@@ -320,13 +321,13 @@ func (c *WorkflowRunCollector) emitWorkflowRunAttemptMax(ch chan<- prometheus.Me
 	}
 }
 
-// swapLoggedMaximum stores maximum for key and reports whether it differs from the stored value.
-func (c *WorkflowRunCollector) swapLoggedMaximum(key string, maximum int64) bool {
+// swapLoggedMaximum stores state for key and reports whether it differs from the stored value.
+func (c *WorkflowRunCollector) swapLoggedMaximum(key string, state string) bool {
 	c.loggedMu.Lock()
 	defer c.loggedMu.Unlock()
 	previous, ok := c.loggedMaxima[key]
-	c.loggedMaxima[key] = maximum
-	return !ok || previous != maximum
+	c.loggedMaxima[key] = state
+	return !ok || previous != state
 }
 
 func statusToGauge(conclusion string) float64 {

@@ -160,22 +160,35 @@ func TestWorkflowRunAttemptCollectorKeepsWebhookDatabaseErrorAfterSuccessfulScra
 	}
 }
 
-func TestWorkflowRunAttemptCollectorLogsRepeatedBranchOnceAtInfo(t *testing.T) {
-	collector := newWorkflowRunAttemptTestCollector(attemptSnapshotStore{snapshot: &store.WorkflowRunAttemptSnapshot{
-		InitializedAt: time.Now().Add(-7 * time.Hour),
-		Series:        []store.WorkflowRunAttemptSeriesKey{{Owner: "example-org", Repo: "sample-repo", WorkflowID: 9, Event: "push"}},
-		BranchCounts: []store.WorkflowRunAttemptBranchCount{
-			{Owner: "example-org", Repo: "sample-repo", WorkflowID: 9, Event: "push", Branch: "topic/looping", Attempts30m: 3, Attempts6h: 3},
-		},
-	}})
+func TestWorkflowRunAttemptCollectorLogsMaximumBranchesWhenTheyChange(t *testing.T) {
+	branch := func(name string, attempts int64) store.WorkflowRunAttemptBranchCount {
+		return store.WorkflowRunAttemptBranchCount{Owner: "example-org", Repo: "sample-repo", WorkflowID: 9, Event: "push", Branch: name, Attempts30m: attempts, Attempts6h: attempts}
+	}
+	collector := newWorkflowRunAttemptTestCollector(nil)
 	var logs bytes.Buffer
 	collector.logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	collectWorkflowRunAttemptTestMetrics(collector)
-	collectWorkflowRunAttemptTestMetrics(collector)
-
-	if got := strings.Count(logs.String(), "topic/looping"); got != 2 {
-		t.Fatalf("branch logged %d times over two scrapes, want once per window:\n%s", got, logs.String())
+	steps := []struct {
+		name     string
+		branches []store.WorkflowRunAttemptBranchCount
+		logged   int
+	}{
+		{name: "single run per branch", branches: []store.WorkflowRunAttemptBranchCount{branch("topic/single", 1)}, logged: 0},
+		{name: "new maximum", branches: []store.WorkflowRunAttemptBranchCount{branch("topic/looping", 3)}, logged: 2},
+		{name: "unchanged", branches: []store.WorkflowRunAttemptBranchCount{branch("topic/looping", 3)}, logged: 0},
+		{name: "tied branch", branches: []store.WorkflowRunAttemptBranchCount{branch("topic/looping", 3), branch("topic/tied", 3)}, logged: 2},
+	}
+	for _, step := range steps {
+		logs.Reset()
+		collector.db = attemptSnapshotStore{snapshot: &store.WorkflowRunAttemptSnapshot{
+			InitializedAt: time.Now().Add(-7 * time.Hour),
+			Series:        []store.WorkflowRunAttemptSeriesKey{{Owner: "example-org", Repo: "sample-repo", WorkflowID: 9, Event: "push"}},
+			BranchCounts:  step.branches,
+		}}
+		collectWorkflowRunAttemptTestMetrics(collector)
+		if got := strings.Count(logs.String(), "Workflow run attempts per branch changed"); got != step.logged {
+			t.Fatalf("%s: logged %d times, want %d:\n%s", step.name, got, step.logged, logs.String())
+		}
 	}
 }
 
