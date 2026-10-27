@@ -5,6 +5,7 @@ package action
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -301,43 +302,54 @@ func TestWorkflowRunRecoveryClassifiesGitHubAPIErrors(t *testing.T) {
 	}
 }
 
-func TestWorkflowRunRecoveryReportsRedeliveryThatFailedAgain(t *testing.T) {
-	var redelivered int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/repos/example-org/sample-repo/hooks/11/deliveries":
-			writeJSON(t, w, []map[string]any{
-				{"id": 402, "guid": "delivery-retried", "status": "failed", "event": "workflow_run", "redelivery": true},
-			})
-		case "/repos/example-org/sample-repo/hooks/11/deliveries/402/attempts":
-			redelivered++
-			w.WriteHeader(http.StatusAccepted)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	db := newRecoveryTestStore(t)
-	if _, err := db.ReserveWorkflowRunRecoveryDelivery("example-org", "sample-repo", 11, "delivery-retried", 401, time.Now()); err != nil {
-		t.Fatal(err)
+func TestWorkflowRunRecoveryReportsOnlyRedeliveriesThatFailedAgain(t *testing.T) {
+	tests := []struct {
+		redelivery    bool
+		recoveryError float64
+	}{
+		{redelivery: true, recoveryError: 1},
+		{redelivery: false, recoveryError: 0},
 	}
-	health := exporter.NewWorkflowRunHealth(true)
-	recovery := workflowRunRecovery{
-		config: config.Config{Target: config.Target{Timeout: time.Second}},
-		db:     db,
-		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		client: newRecoveryTestClient(t, server),
-		health: health,
-	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("redelivery=%v", tt.redelivery), func(t *testing.T) {
+			var redelivered int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/repos/example-org/sample-repo/hooks/11/deliveries":
+					writeJSON(t, w, []map[string]any{
+						{"id": 402, "guid": "delivery-retried", "status": "failed", "event": "workflow_run", "redelivery": tt.redelivery},
+					})
+				case "/repos/example-org/sample-repo/hooks/11/deliveries/402/attempts":
+					redelivered++
+					w.WriteHeader(http.StatusAccepted)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
 
-	recovery.recoverHook(context.Background(), "example-org", "sample-repo", 11)
+			db := newRecoveryTestStore(t)
+			if _, err := db.ReserveWorkflowRunRecoveryDelivery("example-org", "sample-repo", 11, "delivery-retried", 401, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			health := exporter.NewWorkflowRunHealth(true)
+			recovery := workflowRunRecovery{
+				config: config.Config{Target: config.Target{Timeout: time.Second}},
+				db:     db,
+				logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+				client: newRecoveryTestClient(t, server),
+				health: health,
+			}
 
-	if redelivered != 0 {
-		t.Fatalf("redelivery calls = %d, want no second redelivery of the same GUID", redelivered)
-	}
-	if got := healthValue(health, exporter.WorkflowRunHealthRecoveryError); got != 1 {
-		t.Fatalf("recovery_error = %v, want 1 for a redelivery that failed again", got)
+			recovery.recoverHook(context.Background(), "example-org", "sample-repo", 11)
+
+			if redelivered != 0 {
+				t.Fatalf("redelivery calls = %d, want no second redelivery of the same GUID", redelivered)
+			}
+			if got := healthValue(health, exporter.WorkflowRunHealthRecoveryError); got != tt.recoveryError {
+				t.Fatalf("recovery_error = %v, want %v", got, tt.recoveryError)
+			}
+		})
 	}
 }
 
