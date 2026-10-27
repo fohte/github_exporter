@@ -9,26 +9,42 @@ const (
 	WorkflowRunHealthDatabaseError = "database_error"
 	// WorkflowRunHealthSeriesLimitExceeded is true after the persistent registry reaches its cap.
 	WorkflowRunHealthSeriesLimitExceeded = "series_limit_exceeded"
+	// WorkflowRunHealthRecoveryEnabled is true when delivery recovery is enabled.
+	WorkflowRunHealthRecoveryEnabled = "recovery_enabled"
+	// WorkflowRunHealthRecoveryPermissionError is true when GitHub denied recovery access.
+	WorkflowRunHealthRecoveryPermissionError = "recovery_permission_error"
+	// WorkflowRunHealthRecoveryRateLimit is true when GitHub rate-limited recovery requests.
+	WorkflowRunHealthRecoveryRateLimit = "recovery_rate_limit"
+	// WorkflowRunHealthRecoveryPaginationTrunc is true when a delivery scan hit its page limit.
+	WorkflowRunHealthRecoveryPaginationTrunc = "recovery_pagination_truncated"
+	// WorkflowRunHealthRecoveryError is true when recovery failed for another reason.
+	WorkflowRunHealthRecoveryError = "recovery_error"
 )
 
 var workflowRunHealthConditions = []string{
 	WorkflowRunHealthHistoryReady,
 	WorkflowRunHealthDatabaseError,
 	WorkflowRunHealthSeriesLimitExceeded,
+	WorkflowRunHealthRecoveryEnabled,
+	WorkflowRunHealthRecoveryPermissionError,
+	WorkflowRunHealthRecoveryRateLimit,
+	WorkflowRunHealthRecoveryPaginationTrunc,
+	WorkflowRunHealthRecoveryError,
 }
 
-// WorkflowRunHealth stores bounded health states shared by the webhook handler and collector.
+// WorkflowRunHealth stores bounded health states shared by the collector and recovery worker.
 type WorkflowRunHealth struct {
 	mu     sync.RWMutex
 	states map[string]bool
 }
 
 // NewWorkflowRunHealth initializes all fixed health states.
-func NewWorkflowRunHealth() *WorkflowRunHealth {
+func NewWorkflowRunHealth(recoveryEnabled bool) *WorkflowRunHealth {
 	states := make(map[string]bool, len(workflowRunHealthConditions))
 	for _, condition := range workflowRunHealthConditions {
 		states[condition] = false
 	}
+	states[WorkflowRunHealthRecoveryEnabled] = recoveryEnabled
 
 	return &WorkflowRunHealth{states: states}
 }
@@ -52,7 +68,7 @@ func (h *WorkflowRunHealth) Snapshot() []struct {
 	Value     float64
 } {
 	if h == nil {
-		h = NewWorkflowRunHealth()
+		h = NewWorkflowRunHealth(false)
 	}
 
 	h.mu.RLock()

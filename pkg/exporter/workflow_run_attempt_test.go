@@ -128,7 +128,7 @@ func newWorkflowRunAttemptTestCollector(db store.Store) *WorkflowRunCollector {
 	failures := prometheus.NewCounterVec(prometheus.CounterOpts{Name: "test_attempt_failures_total", Help: "Test failures"}, []string{"type"})
 	duration := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_attempt_duration_seconds", Help: "Test duration"}, []string{"type"})
 	cfg := config.Target{WorkflowRuns: config.WorkflowRuns{AttemptRetention: 24 * time.Hour, Labels: config.RunLabels()}}
-	return NewWorkflowRunCollector(logger, &github.Client{}, db, failures, duration, cfg, NewWorkflowRunHealth())
+	return NewWorkflowRunCollector(logger, &github.Client{}, db, failures, duration, cfg, NewWorkflowRunHealth(false))
 }
 
 func collectWorkflowRunAttemptTestMetrics(collector *WorkflowRunCollector) []prometheus.Metric {

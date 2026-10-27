@@ -39,7 +39,7 @@ func NewWorkflowRunCollector(logger *slog.Logger, client *github.Client, db stor
 	}
 
 	labels := cfg.WorkflowRuns.Labels
-	health := NewWorkflowRunHealth()
+	health := NewWorkflowRunHealth(cfg.WorkflowRuns.Recovery.Enabled)
 	if len(sharedHealth) > 0 && sharedHealth[0] != nil {
 		health = sharedHealth[0]
 	}

@@ -3,6 +3,7 @@ package action
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -23,6 +24,10 @@ import (
 
 // Server handles the server sub-command.
 func Server(cfg *config.Config, db store.Store, logger *slog.Logger) error {
+	if cfg.Target.WorkflowRuns.Recovery.Enabled && !cfg.Collector.WorkflowRuns {
+		return fmt.Errorf("workflow run recovery requires the workflow run collector")
+	}
+
 	logger.Info("Launching GitHub Exporter",
 		"version", version.String,
 		"revision", version.Revision,
@@ -37,7 +42,7 @@ func Server(cfg *config.Config, db store.Store, logger *slog.Logger) error {
 	}
 
 	var gr run.Group
-	health := exporter.NewWorkflowRunHealth()
+	health := exporter.NewWorkflowRunHealth(cfg.Target.WorkflowRuns.Recovery.Enabled)
 
 	{
 		server := &http.Server{
@@ -76,6 +81,15 @@ func Server(cfg *config.Config, db store.Store, logger *slog.Logger) error {
 			logger.Info("Metrics shutdown gracefully",
 				"reason", reason,
 			)
+		})
+	}
+
+	if cfg.Collector.WorkflowRuns && cfg.Target.WorkflowRuns.Recovery.Enabled {
+		ctx, cancel := context.WithCancel(context.Background())
+		gr.Add(func() error {
+			return runWorkflowRunRecovery(ctx, cfg, db, logger, client, health)
+		}, func(error) {
+			cancel()
 		})
 	}
 

@@ -88,6 +88,18 @@ GITHUB_EXPORTER_WORKFLOW_RUNS_PURGE_WINDOW
 GITHUB_EXPORTER_WORKFLOW_RUN_ATTEMPTS_RETENTION
 : History window for keeping workflow run attempts (minimum 6h), defaults to `24h0m0s`
 
+GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_ENABLED
+: Enable scheduled recovery of failed workflow_run webhook deliveries, defaults to `false`
+
+GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_INTERVAL
+: Interval for checking failed workflow_run webhook deliveries, defaults to `5m0s`
+
+GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_CALLBACK_URL
+: Exact webhook callback URL to check and redeliver
+
+GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_MAX_PAGES
+: Maximum delivery pages to scan per recovery interval, defaults to `10`
+
 GITHUB_EXPORTER_WORKFLOW_RUNS_LABELS
 : List of labels used for workflows, comma-separated list, defaults to `owner, repo, workflow, event, name, status, branch, number, run`
 

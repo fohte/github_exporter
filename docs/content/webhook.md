@@ -45,4 +45,30 @@ and `window` labels. `repo` is the full repository name, `workflow` is the
 workflow ID, and `window` is `30m` or `6h`; branch details are available in
 debug logs and do not add metric series. The gauge is emitted after the six-hour
 history is ready. Health condition values are `history_ready`, `database_error`,
-and `series_limit_exceeded`.
+`series_limit_exceeded`, `recovery_enabled`, `recovery_permission_error`,
+`recovery_rate_limit`, `recovery_pagination_truncated`, and `recovery_error`.
+
+### Recovering failed workflow run deliveries
+
+GitHub does not automatically retry failed webhook deliveries. The exporter can
+check and redeliver failed `workflow_run` deliveries when recovery is explicitly
+enabled. Set `GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_ENABLED=true` and provide the
+exact configured callback URL through
+`GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_CALLBACK_URL`, for example
+`https://exporter.example.invalid/github`. Recovery is disabled by default and
+runs every five minutes unless `GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_INTERVAL`
+is set.
+
+The exporter checks only repositories configured through
+`GITHUB_EXPORTER_REPOS`. It redelivers deliveries only for active repository
+hooks that subscribe to `workflow_run` and have the exact callback URL. A
+delivery GUID is attempted at most once, and scan cursors and retry history are
+stored in the configured database. `GITHUB_EXPORTER_WORKFLOW_RUN_RECOVERY_MAX_PAGES`
+limits delivery pages read per interval; a nonzero
+`github_workflow_run_attempt_health{condition="recovery_pagination_truncated"}`
+indicates that more pages remain.
+
+The GitHub token or App installation needs repository **Webhooks** permission
+with read access to list hooks and deliveries. Redelivery also requires write
+access. See the [repository webhook API permissions](https://docs.github.com/en/rest/repos/webhooks?apiVersion=2022-11-28#list-deliveries-for-a-repository-webhook)
+and [failed delivery guidance](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries).

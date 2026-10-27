@@ -1,0 +1,176 @@
+//go:build sqlite
+
+package action
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/go-github/v84/github"
+	"github.com/promhippie/github_exporter/pkg/config"
+	"github.com/promhippie/github_exporter/pkg/exporter"
+	"github.com/promhippie/github_exporter/pkg/store"
+)
+
+func TestWorkflowRunRecoveryPaginatesMatchingHookAndRedeliversOnce(t *testing.T) {
+	var (
+		mu               sync.Mutex
+		redelivered      = make(map[string]int)
+		deliveryListCall int
+	)
+	var server *httptest.Server
+	callbackURL := ""
+	deliveredAt := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/example-org/sample-repo":
+			writeJSON(t, w, map[string]any{
+				"id":        1,
+				"name":      "sample-repo",
+				"full_name": "example-org/sample-repo",
+				"owner":     map[string]string{"login": "example-org"},
+			})
+		case "/repos/example-org/sample-repo/hooks":
+			writeJSON(t, w, []map[string]any{
+				{"id": 11, "active": true, "events": []string{"workflow_run"}, "config": map[string]string{"url": callbackURL}},
+				{"id": 12, "active": true, "events": []string{"workflow_run"}, "config": map[string]string{"url": "https://unrelated.example.invalid/hook"}},
+				{"id": 13, "active": false, "events": []string{"workflow_run"}, "config": map[string]string{"url": callbackURL}},
+				{"id": 14, "active": true, "events": []string{"push"}, "config": map[string]string{"url": callbackURL}},
+			})
+		case "/repos/example-org/sample-repo/hooks/11/deliveries":
+			mu.Lock()
+			deliveryListCall++
+			mu.Unlock()
+			if r.URL.Query().Get("cursor") == "next-cursor" {
+				writeJSON(t, w, []map[string]any{
+					{"id": 202, "guid": "delivery-second", "delivered_at": deliveredAt, "status": "failed", "event": "workflow_run"},
+				})
+				return
+			}
+			w.Header().Set("Link", "<"+server.URL+"/repos/example-org/sample-repo/hooks/11/deliveries?cursor=next-cursor>; rel=\"next\"")
+			writeJSON(t, w, []map[string]any{
+				{"id": 201, "guid": "delivery-first", "delivered_at": deliveredAt, "status": "failed", "event": "workflow_run"},
+				{"id": 203, "guid": "delivery-push", "delivered_at": deliveredAt, "status": "failed", "event": "push"},
+				{"id": 204, "guid": "delivery-ok", "delivered_at": deliveredAt, "status": "OK", "event": "workflow_run"},
+			})
+		case "/repos/example-org/sample-repo/hooks/11/deliveries/201/attempts",
+			"/repos/example-org/sample-repo/hooks/11/deliveries/202/attempts":
+			mu.Lock()
+			redelivered[r.URL.Path]++
+			mu.Unlock()
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	callbackURL = server.URL + "/webhook"
+
+	database := filepath.Join(t.TempDir(), "recovery.sqlite")
+	db, err := store.NewSqliteStore("sqlite://"+database, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Open(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+
+	client := github.NewClient(server.Client())
+	client.BaseURL, err = url.Parse(server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	health := exporter.NewWorkflowRunHealth(true)
+	cfg := config.Config{
+		Target: config.Target{
+			Repos:   []string{"example-org/sample-repo"},
+			Timeout: time.Second,
+			WorkflowRuns: config.WorkflowRuns{Recovery: config.WorkflowRunRecovery{
+				Enabled:     true,
+				Interval:    time.Minute,
+				CallbackURL: callbackURL,
+				MaxPages:    1,
+			}},
+		},
+	}
+	recovery := workflowRunRecovery{config: cfg, db: db, logger: logger, client: client, health: health}
+
+	recovery.runCycle(context.Background())
+	checkpoint, err := db.GetWorkflowRunRecoveryCheckpoint("example-org", "sample-repo", 11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint.Cursor != "next-cursor" || checkpoint.ScanStartedAt.IsZero() {
+		t.Fatalf("checkpoint after first page = %#v, want resumable cursor", checkpoint)
+	}
+	if healthValue(health, exporter.WorkflowRunHealthRecoveryPaginationTrunc) != 1 {
+		t.Fatal("page limit was not reported as truncated")
+	}
+
+	recovery.runCycle(context.Background())
+	checkpoint, err = db.GetWorkflowRunRecoveryCheckpoint("example-org", "sample-repo", 11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint.Cursor != "" || !checkpoint.ScanStartedAt.IsZero() || checkpoint.LastCompletedAt.IsZero() {
+		t.Fatalf("checkpoint during active scan = %#v, want completed cursor scan", checkpoint)
+	}
+	if healthValue(health, exporter.WorkflowRunHealthRecoveryPaginationTrunc) != 0 {
+		t.Fatal("completed pagination remained marked truncated")
+	}
+
+	mu.Lock()
+	if len(redelivered) != 2 || redelivered["/repos/example-org/sample-repo/hooks/11/deliveries/201/attempts"] != 1 || redelivered["/repos/example-org/sample-repo/hooks/11/deliveries/202/attempts"] != 1 {
+		t.Fatalf("redelivery calls = %#v, want one call for each matching failed delivery", redelivered)
+	}
+	if deliveryListCall != 2 {
+		t.Fatalf("delivery list calls = %d, want 2", deliveryListCall)
+	}
+	mu.Unlock()
+
+	reserved, err := db.ReserveWorkflowRunRecoveryDelivery("example-org", "sample-repo", 11, "delivery-first", 201, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reserved {
+		t.Fatal("completed delivery was reserved for another redelivery")
+	}
+
+	recovery.runCycle(context.Background())
+	mu.Lock()
+	defer mu.Unlock()
+	if len(redelivered) != 2 {
+		t.Fatalf("redelivery calls after repeated scan = %#v, want no duplicate calls", redelivered)
+	}
+}
+
+func writeJSON(t *testing.T, w http.ResponseWriter, value any) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		t.Errorf("encode test response: %v", err)
+	}
+}
+
+func healthValue(health *exporter.WorkflowRunHealth, condition string) float64 {
+	for _, state := range health.Snapshot() {
+		if state.Condition == condition {
+			return state.Value
+		}
+	}
+	return -1
+}
