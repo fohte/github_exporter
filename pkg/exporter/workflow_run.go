@@ -271,7 +271,7 @@ func (c *WorkflowRunCollector) emitWorkflowRunAttemptMax(ch chan<- prometheus.Me
 			{name: "30m", size: 30 * time.Minute, get: func(row store.WorkflowRunAttemptBranchCount) int64 { return row.Attempts30m }},
 			{name: "6h", size: 6 * time.Hour, get: func(row store.WorkflowRunAttemptBranchCount) int64 { return row.Attempts6h }},
 		} {
-			// A window shorter than the recorded history would report a falsely low maximum.
+			// Windows wider than the recorded history report artificially low maxima.
 			if history < window.size {
 				continue
 			}
