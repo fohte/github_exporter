@@ -40,6 +40,34 @@ func (s StaticStore) PruneWorkflowRuns(time.Duration) error {
 	return nil
 }
 
+func (s StaticStore) StoreWorkflowRunAttemptEvent(*github.WorkflowRunEvent) error {
+	return nil
+}
+
+func (s StaticStore) GetWorkflowRunAttemptSnapshot(time.Time) (*store.WorkflowRunAttemptSnapshot, error) {
+	return &store.WorkflowRunAttemptSnapshot{}, nil
+}
+
+func (s StaticStore) PruneWorkflowRunAttempts(time.Duration) error {
+	return nil
+}
+
+func (s StaticStore) GetWorkflowRunRecoveryCheckpoint(owner, repo string, hookID int64) (store.WorkflowRunRecoveryCheckpoint, error) {
+	return store.WorkflowRunRecoveryCheckpoint{Owner: owner, Repo: repo, HookID: hookID}, nil
+}
+
+func (s StaticStore) SaveWorkflowRunRecoveryCheckpoint(store.WorkflowRunRecoveryCheckpoint) error {
+	return nil
+}
+
+func (s StaticStore) ReserveWorkflowRunRecoveryDelivery(string, string, int64, string, int64, time.Time) (bool, error) {
+	return true, nil
+}
+
+func (s StaticStore) MarkWorkflowRunRecoveryDelivery(string, string, int64, string, int64, time.Time, string) error {
+	return nil
+}
+
 func (s StaticStore) StoreWorkflowJobEvent(*github.WorkflowJobEvent) error {
 	return nil
 }

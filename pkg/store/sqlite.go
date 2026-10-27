@@ -74,6 +74,76 @@ var (
 				PRIMARY KEY(owner, repo, identifier)
 			);`,
 		},
+		{
+			Version:     4,
+			Description: "Creating workflow run attempts table",
+			Script: `CREATE TABLE workflow_run_attempts (
+				attempt_key TEXT NOT NULL PRIMARY KEY,
+				owner TEXT NOT NULL,
+				repo TEXT NOT NULL,
+				workflow_id BIGINT NOT NULL,
+				event TEXT NOT NULL,
+				branch TEXT NOT NULL,
+				run_id BIGINT NOT NULL,
+				run_attempt INTEGER NOT NULL,
+				started_at_ns BIGINT NOT NULL
+			);`,
+		},
+		{
+			Version:     5,
+			Description: "Creating workflow run attempt series table",
+			Script: `CREATE TABLE workflow_run_attempt_series (
+				series_key TEXT NOT NULL PRIMARY KEY,
+				owner TEXT NOT NULL,
+				repo TEXT NOT NULL,
+				workflow_id BIGINT NOT NULL,
+				event TEXT NOT NULL,
+				created_at_ns BIGINT NOT NULL
+			);`,
+		},
+		{
+			Version:     6,
+			Description: "Creating workflow run attempt metadata table",
+			Script: `CREATE TABLE workflow_run_attempt_meta (
+				id INTEGER NOT NULL PRIMARY KEY,
+				initialized_at_ns BIGINT NOT NULL,
+				series_limit_exceeded INTEGER NOT NULL
+			);`,
+		},
+		{
+			Version:     7,
+			Description: "Creating workflow run recovery checkpoints table",
+			Script: `CREATE TABLE workflow_run_recovery_checkpoints (
+				checkpoint_key TEXT NOT NULL PRIMARY KEY,
+				owner TEXT NOT NULL,
+				repo TEXT NOT NULL,
+				hook_id BIGINT NOT NULL,
+				cursor TEXT NOT NULL,
+				scan_started_at_ns BIGINT NOT NULL,
+				scan_cutoff_ns BIGINT NOT NULL,
+				last_completed_at_ns BIGINT NOT NULL,
+				updated_at_ns BIGINT NOT NULL
+			);`,
+		},
+		{
+			Version:     8,
+			Description: "Creating workflow run recovery attempts table",
+			Script: `CREATE TABLE workflow_run_recovery_attempts (
+				delivery_key TEXT NOT NULL PRIMARY KEY,
+				owner TEXT NOT NULL,
+				repo TEXT NOT NULL,
+				hook_id BIGINT NOT NULL,
+				guid TEXT NOT NULL,
+				delivery_id BIGINT NOT NULL,
+				attempted_at_ns BIGINT NOT NULL,
+				status TEXT NOT NULL
+			);`,
+		},
+		{
+			Version:     9,
+			Description: "Indexing workflow run attempt start times",
+			Script:      `CREATE INDEX workflow_run_attempts_started_at ON workflow_run_attempts (started_at_ns);`,
+		},
 	}
 )
 
@@ -157,6 +227,34 @@ func (s *sqliteStore) GetWorkflowRuns(window time.Duration) ([]*WorkflowRun, err
 // PruneWorkflowRuns implements the Store interface.
 func (s *sqliteStore) PruneWorkflowRuns(timeframe time.Duration) error {
 	return pruneWorkflowRuns(s.handle, timeframe)
+}
+
+func (s *sqliteStore) StoreWorkflowRunAttemptEvent(event *github.WorkflowRunEvent) error {
+	return storeWorkflowRunAttemptEvent(s.handle, event)
+}
+
+func (s *sqliteStore) GetWorkflowRunAttemptSnapshot(now time.Time) (*WorkflowRunAttemptSnapshot, error) {
+	return getWorkflowRunAttemptSnapshot(s.handle, now)
+}
+
+func (s *sqliteStore) PruneWorkflowRunAttempts(retention time.Duration) error {
+	return pruneWorkflowRunAttempts(s.handle, retention)
+}
+
+func (s *sqliteStore) GetWorkflowRunRecoveryCheckpoint(owner, repo string, hookID int64) (WorkflowRunRecoveryCheckpoint, error) {
+	return getWorkflowRunRecoveryCheckpoint(s.handle, owner, repo, hookID)
+}
+
+func (s *sqliteStore) SaveWorkflowRunRecoveryCheckpoint(checkpoint WorkflowRunRecoveryCheckpoint) error {
+	return saveWorkflowRunRecoveryCheckpoint(s.handle, checkpoint)
+}
+
+func (s *sqliteStore) ReserveWorkflowRunRecoveryDelivery(owner, repo string, hookID int64, guid string, deliveryID int64, attemptedAt time.Time) (bool, error) {
+	return reserveWorkflowRunRecoveryDelivery(s.handle, owner, repo, hookID, guid, deliveryID, attemptedAt)
+}
+
+func (s *sqliteStore) MarkWorkflowRunRecoveryDelivery(owner, repo string, hookID int64, guid string, deliveryID int64, at time.Time, status string) error {
+	return markWorkflowRunRecoveryDelivery(s.handle, owner, repo, hookID, guid, deliveryID, at, status)
 }
 
 // StoreWorkflowJobEvent implements the Store interface.
