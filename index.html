@@ -356,7 +356,7 @@
 	}
 </style>
 
-		<meta name="generator" content="Hugo 0.168.0">
+		<meta name="generator" content="Hugo 0.169.0">
 </head>
 
 	<body>
@@ -877,6 +877,8 @@ take a look at the <a href="https://github.com/prometheus/client_golang/blob/mas
 <dd>Workflow run attempt collection health state; condition values are 1 when active or healthy</dd>
 <dt>github_workflow_run_attempts_per_branch_max{repo, workflow, event, window}</dt>
 <dd>Maximum number of workflow run attempts for any branch in the time window</dd>
+<dt>github_workflow_bot_shas_per_branch_max{repo, window}</dt>
+<dd>Maximum number of distinct bot workflow run commit SHAs for any branch in the time window</dd>
 <dt>github_workflow_run_created_timestamp{owner, repo, workflow, event, name, status, branch, number, run}</dt>
 <dd>Timestamp when the workflow run have been created</dd>
 <dt>github_workflow_run_duration_ms{owner, repo, workflow, event, name, status, branch, number, run}</dt>
@@ -1076,6 +1078,18 @@ initialized it in the database, so after the first start or a database loss the
 condition values are <code>history_6h_ready</code>, <code>database_error</code>,
 <code>series_limit_exceeded</code>, <code>recovery_enabled</code>, <code>recovery_permission_error</code>,
 <code>recovery_rate_limit</code>, <code>recovery_pagination_truncated</code>, and <code>recovery_error</code>.</p>
+<h3 id="bot-commit-shas-per-branch">Bot commit SHAs per branch</h3>
+<p><code>github_workflow_bot_shas_per_branch_max</code> has <code>repo</code> and <code>window</code> labels, with
+windows <code>30m</code> and <code>6h</code>. It reports the maximum number of distinct bot-triggered
+commit SHAs on any branch since the last human-triggered new SHA on that branch.
+A human-triggered new SHA on the repository&rsquo;s default branch resets every
+branch. Scheduled runs do not count or reset the value. Re-runs do not count as
+new SHAs. A branch/SHA pair with a retained first-seen record does not count
+again; after that record expires under the configured attempt retention and is
+pruned, a later run can be treated as new. The branch or tied branches that
+produce a positive maximum are logged at info level when the maximum count or
+branch set changes. A non-bot, non-scheduled run is treated as human for reset
+purposes.</p>
 <h3 id="recovering-failed-workflow-run-deliveries">Recovering failed workflow run deliveries</h3>
 <p>GitHub does not automatically retry failed webhook deliveries. The exporter can
 check and redeliver failed <code>workflow_run</code> deliveries when recovery is explicitly
