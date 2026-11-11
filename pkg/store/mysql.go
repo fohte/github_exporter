@@ -144,6 +144,34 @@ var (
 			Description: "Indexing workflow run attempt start times",
 			Script:      `ALTER TABLE workflow_run_attempts ADD INDEX workflow_run_attempts_started_at (started_at_ns);`,
 		},
+		{
+			Version:     10,
+			Description: "Creating workflow run bot SHA repository table",
+			Script: `CREATE TABLE workflow_run_bot_sha_repos (
+				repo_key VARCHAR(64) NOT NULL PRIMARY KEY,
+				owner VARCHAR(255) NOT NULL,
+				repo VARCHAR(255) NOT NULL
+			) ENGINE=InnoDB CHARACTER SET=utf8;`,
+		},
+		{
+			Version:     11,
+			Description: "Creating workflow run bot SHA table",
+			Script: `CREATE TABLE workflow_run_bot_shas (
+				sha_key VARCHAR(64) NOT NULL PRIMARY KEY,
+				owner VARCHAR(255) NOT NULL,
+				repo VARCHAR(255) NOT NULL,
+				branch VARCHAR(255) NOT NULL,
+				sha VARCHAR(64) NOT NULL,
+				default_branch VARCHAR(255) NOT NULL,
+				is_bot INTEGER NOT NULL,
+				created_at_ns BIGINT NOT NULL
+			) ENGINE=InnoDB CHARACTER SET=utf8;`,
+		},
+		{
+			Version:     12,
+			Description: "Indexing workflow run bot SHA creation times",
+			Script:      `ALTER TABLE workflow_run_bot_shas ADD INDEX workflow_run_bot_shas_created_at (created_at_ns);`,
+		},
 	}
 )
 
@@ -243,6 +271,14 @@ func (s *mysqlStore) GetWorkflowRunAttemptSnapshot(now time.Time) (*WorkflowRunA
 
 func (s *mysqlStore) PruneWorkflowRunAttempts(retention time.Duration) error {
 	return pruneWorkflowRunAttempts(s.handle, retention)
+}
+
+func (s *mysqlStore) StoreWorkflowRunBotSHAEvent(event *github.WorkflowRunEvent) error {
+	return storeWorkflowRunBotSHAEvent(s.handle, event)
+}
+
+func (s *mysqlStore) GetWorkflowRunBotSHASnapshot(now time.Time) (*WorkflowRunBotSHASnapshot, error) {
+	return getWorkflowRunBotSHASnapshot(s.handle, now)
 }
 
 func (s *mysqlStore) GetWorkflowRunRecoveryCheckpoint(owner, repo string, hookID int64) (WorkflowRunRecoveryCheckpoint, error) {

@@ -53,6 +53,16 @@ condition values are `history_6h_ready`, `database_error`,
 `series_limit_exceeded`, `recovery_enabled`, `recovery_permission_error`,
 `recovery_rate_limit`, `recovery_pagination_truncated`, and `recovery_error`.
 
+### Bot commit SHAs per branch
+
+`github_workflow_bot_shas_per_branch_max` has `repo` and `window` labels, with
+windows `30m` and `6h`. It reports the maximum number of distinct bot-triggered
+commit SHAs on any branch since the last human-triggered new SHA on that branch.
+A human-triggered new SHA on the repository's default branch resets every
+branch. Scheduled runs do not count or reset the value. Re-runs and runs for an
+already-seen branch/SHA pair do not count as new SHAs. The branch or tied
+branches that produce a positive maximum are logged at info level.
+
 ### Recovering failed workflow run deliveries
 
 GitHub does not automatically retry failed webhook deliveries. The exporter can

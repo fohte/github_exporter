@@ -144,6 +144,34 @@ var (
 			Description: "Indexing workflow run attempt start times",
 			Script:      `CREATE INDEX workflow_run_attempts_started_at ON workflow_run_attempts (started_at_ns);`,
 		},
+		{
+			Version:     10,
+			Description: "Creating workflow run bot SHA repository table",
+			Script: `CREATE TABLE workflow_run_bot_sha_repos (
+				repo_key TEXT NOT NULL PRIMARY KEY,
+				owner TEXT NOT NULL,
+				repo TEXT NOT NULL
+			);`,
+		},
+		{
+			Version:     11,
+			Description: "Creating workflow run bot SHA table",
+			Script: `CREATE TABLE workflow_run_bot_shas (
+				sha_key TEXT NOT NULL PRIMARY KEY,
+				owner TEXT NOT NULL,
+				repo TEXT NOT NULL,
+				branch TEXT NOT NULL,
+				sha TEXT NOT NULL,
+				default_branch TEXT NOT NULL,
+				is_bot INTEGER NOT NULL,
+				created_at_ns BIGINT NOT NULL
+			);`,
+		},
+		{
+			Version:     12,
+			Description: "Indexing workflow run bot SHA creation times",
+			Script:      `CREATE INDEX workflow_run_bot_shas_created_at ON workflow_run_bot_shas (created_at_ns);`,
+		},
 	}
 )
 
@@ -239,6 +267,14 @@ func (s *sqliteStore) GetWorkflowRunAttemptSnapshot(now time.Time) (*WorkflowRun
 
 func (s *sqliteStore) PruneWorkflowRunAttempts(retention time.Duration) error {
 	return pruneWorkflowRunAttempts(s.handle, retention)
+}
+
+func (s *sqliteStore) StoreWorkflowRunBotSHAEvent(event *github.WorkflowRunEvent) error {
+	return storeWorkflowRunBotSHAEvent(s.handle, event)
+}
+
+func (s *sqliteStore) GetWorkflowRunBotSHASnapshot(now time.Time) (*WorkflowRunBotSHASnapshot, error) {
+	return getWorkflowRunBotSHASnapshot(s.handle, now)
 }
 
 func (s *sqliteStore) GetWorkflowRunRecoveryCheckpoint(owner, repo string, hookID int64) (WorkflowRunRecoveryCheckpoint, error) {

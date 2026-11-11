@@ -235,6 +235,21 @@ func handler(cfg *config.Config, db store.Store, logger *slog.Logger, client *gi
 							_, _ = io.WriteString(w, http.StatusText(http.StatusInternalServerError))
 							return
 						}
+						if err := db.StoreWorkflowRunBotSHAEvent(event); err != nil {
+							health.SetDatabaseError("webhook", true)
+							logger.Error("Failed to store workflow run bot SHA",
+								"owner", event.GetRepo().GetOwner().GetLogin(),
+								"repo", event.GetRepo().GetName(),
+								"number", wfRun.GetRunNumber(),
+								"error", err,
+							)
+
+							w.Header().Set("Content-Type", "text/plain")
+							w.WriteHeader(http.StatusInternalServerError)
+
+							_, _ = io.WriteString(w, http.StatusText(http.StatusInternalServerError))
+							return
+						}
 					}
 					health.SetDatabaseError("webhook", false)
 				case *github.WorkflowJobEvent:
