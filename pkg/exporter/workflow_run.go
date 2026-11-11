@@ -272,8 +272,11 @@ func (c *WorkflowRunCollector) collectWorkflowRunBotSHAMax(ch chan<- prometheus.
 		c.logger.Error("Store does not support workflow run bot SHA metrics")
 		return
 	}
-	pruneErr := botSHAStore.PruneWorkflowRunBotSHAs(c.config.WorkflowRuns.AttemptRetention)
 	snapshot, snapshotErr := botSHAStore.GetWorkflowRunBotSHASnapshot(now)
+	var pruneErr error
+	if pruner, ok := c.db.(store.WorkflowRunBotSHAPruneStore); ok {
+		pruneErr = pruner.PruneWorkflowRunBotSHAs(c.config.WorkflowRuns.AttemptRetention)
+	}
 	if err := errors.Join(pruneErr, snapshotErr); err != nil {
 		c.health.SetDatabaseError("bot_shas", true)
 		c.logger.Error("Failed to collect workflow run bot SHAs", "err", err)

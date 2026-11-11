@@ -49,6 +49,10 @@ type Store interface {
 type WorkflowRunBotSHAStore interface {
 	StoreWorkflowRunBotSHAEvent(*github.WorkflowRunEvent) error
 	GetWorkflowRunBotSHASnapshot(time.Time) (*WorkflowRunBotSHASnapshot, error)
+}
+
+// WorkflowRunBotSHAPruneStore prunes expired first-seen workflow run SHA records.
+type WorkflowRunBotSHAPruneStore interface {
 	PruneWorkflowRunBotSHAs(time.Duration) error
 }
 

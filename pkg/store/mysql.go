@@ -172,6 +172,13 @@ var (
 			Description: "Indexing workflow run bot SHA creation times",
 			Script:      `ALTER TABLE workflow_run_bot_shas ADD INDEX workflow_run_bot_shas_created_at (created_at_ns);`,
 		},
+		{
+			Version:     13,
+			Description: "Creating workflow run bot SHA seen table",
+			Script: `CREATE TABLE workflow_run_bot_sha_seen (
+				sha_key VARCHAR(64) NOT NULL PRIMARY KEY
+			) ENGINE=InnoDB CHARACTER SET=utf8;`,
+		},
 	}
 )
 

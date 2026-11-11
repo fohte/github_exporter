@@ -258,11 +258,10 @@ func ensureWorkflowRunAttemptMeta(tx *sqlx.Tx, now time.Time) error {
 }
 
 func pruneWorkflowRunAttempts(handle *sqlx.DB, retention time.Duration) error {
-	if retention < 6*time.Hour {
-		return fmt.Errorf("workflow run attempt retention must be at least 6h: %s", retention)
+	cutoff, err := workflowRunRetentionCutoff(retention)
+	if err != nil {
+		return fmt.Errorf("workflow run attempt %w", err)
 	}
-
-	cutoff := time.Now().Add(-retention).UnixNano()
 	if _, err := handle.Exec(
 		handle.Rebind("DELETE FROM workflow_run_attempts WHERE started_at_ns < ?"),
 		cutoff,
@@ -271,6 +270,13 @@ func pruneWorkflowRunAttempts(handle *sqlx.DB, retention time.Duration) error {
 	}
 
 	return nil
+}
+
+func workflowRunRetentionCutoff(retention time.Duration) (int64, error) {
+	if retention < 6*time.Hour {
+		return 0, fmt.Errorf("retention must be at least 6h: %s", retention)
+	}
+	return time.Now().Add(-retention).UnixNano(), nil
 }
 
 func getWorkflowRunRecoveryCheckpoint(handle *sqlx.DB, owner, repo string, hookID int64) (WorkflowRunRecoveryCheckpoint, error) {

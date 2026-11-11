@@ -17,10 +17,15 @@ type botSHASnapshotStore struct {
 	StaticStore
 	snapshot *store.WorkflowRunBotSHASnapshot
 	err      error
+	pruneErr error
 }
 
 func (s botSHASnapshotStore) GetWorkflowRunBotSHASnapshot(time.Time) (*store.WorkflowRunBotSHASnapshot, error) {
 	return s.snapshot, s.err
+}
+
+func (s botSHASnapshotStore) PruneWorkflowRunBotSHAs(time.Duration) error {
+	return s.pruneErr
 }
 
 func TestWorkflowRunBotSHAMaxCountsDistinctSHAsAndAppliesHumanResets(t *testing.T) {
@@ -136,5 +141,39 @@ func TestWorkflowRunBotSHASnapshotFailureSetsDatabaseHealthDuringScrape(t *testi
 	}
 	if databaseError != 1 {
 		t.Fatalf("database_error = %v, want 1 after bot SHA snapshot failure", databaseError)
+	}
+}
+
+func TestWorkflowRunBotSHAPrunFailureSetsDatabaseHealthAndOmitsMetric(t *testing.T) {
+	now := time.Now().UTC()
+	collector := newWorkflowRunAttemptTestCollector(botSHASnapshotStore{
+		snapshot: &store.WorkflowRunBotSHASnapshot{
+			Repositories: []store.WorkflowRunBotSHASeries{{Owner: "example-org", Repo: "sample-repo"}},
+			Events: []store.WorkflowRunBotSHA{{
+				Owner: "example-org", Repo: "sample-repo", Branch: "topic/loop", SHA: "sha-example",
+				DefaultBranch: "main", IsBot: true, CreatedAtNS: now.Add(-time.Minute).UnixNano(),
+			}},
+		},
+		pruneErr: errors.New("test prune error"),
+	})
+	metrics := collectWorkflowRunAttemptTestMetrics(collector)
+	maxima := 0
+	databaseError := 0.0
+	for _, metric := range metrics {
+		var sample dto.Metric
+		if err := metric.Write(&sample); err != nil {
+			t.Fatal(err)
+		}
+		for _, label := range sample.GetLabel() {
+			if label.GetName() == "window" && label.GetValue() != "" {
+				maxima++
+			}
+			if label.GetName() == "condition" && label.GetValue() == WorkflowRunHealthDatabaseError {
+				databaseError = sample.GetGauge().GetValue()
+			}
+		}
+	}
+	if maxima != 0 || databaseError != 1 {
+		t.Fatalf("prune failure emitted %d maxima and database_error=%v", maxima, databaseError)
 	}
 }
