@@ -259,18 +259,26 @@ func (c *WorkflowRunCollector) collectAttemptMetrics(ch chan<- prometheus.Metric
 		c.emitWorkflowRunAttemptMax(ch, snapshot, history)
 	}
 
+	c.collectWorkflowRunBotSHAMax(ch, now)
 	for _, state := range c.health.Snapshot() {
 		ch <- prometheus.MustNewConstMetric(c.AttemptHealth, prometheus.GaugeValue, state.Value, state.Condition)
 	}
-	c.collectWorkflowRunBotSHAMax(ch, now)
 }
 
 func (c *WorkflowRunCollector) collectWorkflowRunBotSHAMax(ch chan<- prometheus.Metric, now time.Time) {
-	snapshot, err := c.db.GetWorkflowRunBotSHASnapshot(now)
+	botSHAStore, ok := c.db.(store.WorkflowRunBotSHAStore)
+	if !ok {
+		c.health.SetDatabaseError("bot_shas", true)
+		c.logger.Error("Store does not support workflow run bot SHA metrics")
+		return
+	}
+	snapshot, err := botSHAStore.GetWorkflowRunBotSHASnapshot(now)
 	if err != nil {
+		c.health.SetDatabaseError("bot_shas", true)
 		c.logger.Error("Failed to collect workflow run bot SHAs", "err", err)
 		return
 	}
+	c.health.SetDatabaseError("bot_shas", false)
 
 	eventsByRepo := make(map[string][]store.WorkflowRunBotSHA)
 	for _, event := range snapshot.Events {

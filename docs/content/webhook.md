@@ -61,7 +61,9 @@ commit SHAs on any branch since the last human-triggered new SHA on that branch.
 A human-triggered new SHA on the repository's default branch resets every
 branch. Scheduled runs do not count or reset the value. Re-runs and runs for an
 already-seen branch/SHA pair do not count as new SHAs. The branch or tied
-branches that produce a positive maximum are logged at info level.
+branches that produce a positive maximum are logged at info level when the
+maximum count or branch set changes. A non-bot, non-scheduled run is treated as
+human for reset purposes.
 
 ### Recovering failed workflow run deliveries
 

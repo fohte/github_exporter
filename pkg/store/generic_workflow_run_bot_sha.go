@@ -70,6 +70,10 @@ func storeWorkflowRunBotSHAEvent(handle *sqlx.DB, event *github.WorkflowRunEvent
 	isBot := actor.GetType() == "Bot" || strings.HasSuffix(actor.GetLogin(), "[bot]")
 	defaultBranch := event.GetRepo().GetDefaultBranch()
 	shaKey := workflowRunHash(owner, repo, branch, sha)
+	isBotValue := 0
+	if isBot {
+		isBotValue = 1
+	}
 	candidate := WorkflowRunBotSHA{
 		Owner:         owner,
 		Repo:          repo,
@@ -88,7 +92,7 @@ func storeWorkflowRunBotSHAEvent(handle *sqlx.DB, event *github.WorkflowRunEvent
 			sha_key, owner, repo, branch, sha, default_branch, is_bot, created_at_ns
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
 			shaKey, candidate.Owner, candidate.Repo, candidate.Branch, candidate.SHA,
-			candidate.DefaultBranch, candidate.IsBot, candidate.CreatedAtNS)
+			candidate.DefaultBranch, isBotValue, candidate.CreatedAtNS)
 		if err != nil {
 			return fmt.Errorf("failed to insert workflow run bot SHA: %w", err)
 		}
@@ -97,7 +101,7 @@ func storeWorkflowRunBotSHAEvent(handle *sqlx.DB, event *github.WorkflowRunEvent
 	} else if earlierWorkflowRunBotSHA(candidate, existing) {
 		_, err = tx.Exec(tx.Rebind(`UPDATE workflow_run_bot_shas SET
 			default_branch = ?, is_bot = ?, created_at_ns = ? WHERE sha_key = ?`),
-			candidate.DefaultBranch, candidate.IsBot, candidate.CreatedAtNS, shaKey)
+			candidate.DefaultBranch, isBotValue, candidate.CreatedAtNS, shaKey)
 		if err != nil {
 			return fmt.Errorf("failed to update earliest workflow run bot SHA: %w", err)
 		}
