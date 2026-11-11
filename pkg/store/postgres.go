@@ -181,13 +181,6 @@ var (
 			Description: "Indexing workflow run bot SHA creation times",
 			Script:      `CREATE INDEX workflow_run_bot_shas_created_at ON workflow_run_bot_shas (created_at_ns);`,
 		},
-		{
-			Version:     15,
-			Description: "Creating workflow run bot SHA seen table",
-			Script: `CREATE TABLE workflow_run_bot_sha_seen (
-				sha_key TEXT NOT NULL PRIMARY KEY
-			);`,
-		},
 	}
 )
 

@@ -192,18 +192,15 @@ func TestWorkflowRunBotSHALedgerPrunesUsingConfiguredRetention(t *testing.T) {
 	if err := db.PruneWorkflowRunBotSHAs(24 * time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	var retainedRows, expiredRows, seenRows int
+	var retainedRows, expiredRows int
 	if err := db.handle.Get(&retainedRows, "SELECT COUNT(*) FROM workflow_run_bot_shas WHERE sha_key = ?", workflowRunHash("example-org", "sample-repo", "topic/example", "sha-retained")); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.handle.Get(&expiredRows, "SELECT COUNT(*) FROM workflow_run_bot_shas WHERE sha_key = ?", workflowRunHash("example-org", "sample-repo", "topic/example", "sha-pruned")); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.handle.Get(&seenRows, "SELECT COUNT(*) FROM workflow_run_bot_sha_seen WHERE sha_key = ?", workflowRunHash("example-org", "sample-repo", "topic/example", "sha-pruned")); err != nil {
-		t.Fatal(err)
-	}
-	if retainedRows != 1 || expiredRows != 0 || seenRows != 1 {
-		t.Fatalf("retained detail rows = %d, expired detail rows = %d, expired seen markers = %d; want 1, 0, 1", retainedRows, expiredRows, seenRows)
+	if retainedRows != 1 || expiredRows != 0 {
+		t.Fatalf("retained detail rows = %d, expired detail rows = %d; want 1, 0", retainedRows, expiredRows)
 	}
 	if err := db.StoreWorkflowRunBotSHAEvent(event(now.Add(-time.Minute), "sha-retained", "Bot", "automation[bot]")); err != nil {
 		t.Fatal(err)
@@ -215,8 +212,8 @@ func TestWorkflowRunBotSHALedgerPrunesUsingConfiguredRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.Events) != 0 {
-		t.Fatalf("expired SHA was counted again after retention pruning: %#v", snapshot.Events)
+	if len(snapshot.Events) != 1 || !snapshot.Events[0].IsBot || snapshot.Events[0].SHA != "sha-pruned" {
+		t.Fatalf("first-seen SHA after retention pruning = %#v, want a recent bot run", snapshot.Events)
 	}
 	if err := db.PruneWorkflowRunBotSHAs(5 * time.Hour); err == nil {
 		t.Fatal("retention shorter than the 6h window was accepted")

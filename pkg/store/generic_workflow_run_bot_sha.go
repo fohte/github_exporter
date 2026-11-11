@@ -86,25 +86,9 @@ func storeWorkflowRunBotSHAEvent(handle *sqlx.DB, event *github.WorkflowRunEvent
 	}
 
 	var existing WorkflowRunBotSHA
-	var seen int
-	// Keep the marker after detail rows expire so a later run cannot make an old SHA new again.
-	err = tx.Get(&seen, tx.Rebind("SELECT 1 FROM workflow_run_bot_sha_seen WHERE sha_key = ?"), shaKey)
-	firstSeen := false
-	if errors.Is(err, sql.ErrNoRows) {
-		if _, err := tx.Exec(tx.Rebind("INSERT INTO workflow_run_bot_sha_seen (sha_key) VALUES (?)"), shaKey); err != nil {
-			return fmt.Errorf("failed to mark workflow run bot SHA as seen: %w", err)
-		}
-		firstSeen = true
-	} else if err != nil {
-		return fmt.Errorf("failed to check whether workflow run bot SHA was seen: %w", err)
-	}
-
 	err = tx.Get(&existing, tx.Rebind(`SELECT owner, repo, branch, sha, default_branch, is_bot, created_at_ns
 		FROM workflow_run_bot_shas WHERE sha_key = ?`), shaKey)
 	if errors.Is(err, sql.ErrNoRows) {
-		if !firstSeen {
-			return tx.Commit()
-		}
 		_, err = tx.Exec(tx.Rebind(`INSERT INTO workflow_run_bot_shas (
 			sha_key, owner, repo, branch, sha, default_branch, is_bot, created_at_ns
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
