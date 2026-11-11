@@ -59,11 +59,13 @@ condition values are `history_6h_ready`, `database_error`,
 windows `30m` and `6h`. It reports the maximum number of distinct bot-triggered
 commit SHAs on any branch since the last human-triggered new SHA on that branch.
 A human-triggered new SHA on the repository's default branch resets every
-branch. Scheduled runs do not count or reset the value. Re-runs and runs for an
-already-seen branch/SHA pair do not count as new SHAs. The branch or tied
-branches that produce a positive maximum are logged at info level when the
-maximum count or branch set changes. A non-bot, non-scheduled run is treated as
-human for reset purposes.
+branch. Scheduled runs do not count or reset the value. Re-runs do not count as
+new SHAs. A branch/SHA pair with a retained first-seen record does not count
+again; after that record expires under the configured attempt retention and is
+pruned, a later run can be treated as new. The branch or tied branches that
+produce a positive maximum are logged at info level when the maximum count or
+branch set changes. A non-bot, non-scheduled run is treated as human for reset
+purposes.
 
 ### Recovering failed workflow run deliveries
 
