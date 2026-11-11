@@ -59,7 +59,8 @@ func storeWorkflowRunBotSHAEvent(handle *sqlx.DB, event *github.WorkflowRunEvent
 	branch := run.GetHeadBranch()
 	sha := run.GetHeadSHA()
 	eventName := run.GetEvent()
-	if eventName == "schedule" || branch == "" || sha == "" || createdAt.IsZero() {
+	// Re-runs reuse the original created_at but can replace triggering_actor.
+	if eventName == "schedule" || run.GetRunAttempt() > 1 || branch == "" || sha == "" || createdAt.IsZero() {
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("failed to commit workflow run bot SHA repository: %w", err)
 		}
@@ -138,4 +139,19 @@ func getWorkflowRunBotSHASnapshot(handle *sqlx.DB, now time.Time) (*WorkflowRunB
 		return nil, fmt.Errorf("failed to read recent workflow run bot SHAs: %w", err)
 	}
 	return snapshot, nil
+}
+
+func pruneWorkflowRunBotSHAs(handle *sqlx.DB, retention time.Duration) error {
+	if retention < 6*time.Hour {
+		return fmt.Errorf("workflow run bot SHA retention must be at least 6h: %s", retention)
+	}
+
+	cutoff := time.Now().Add(-retention).UnixNano()
+	if _, err := handle.Exec(
+		handle.Rebind("DELETE FROM workflow_run_bot_shas WHERE created_at_ns < ?"),
+		cutoff,
+	); err != nil {
+		return fmt.Errorf("failed to prune workflow run bot SHAs: %w", err)
+	}
+	return nil
 }

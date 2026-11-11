@@ -281,6 +281,10 @@ func (s *mysqlStore) GetWorkflowRunBotSHASnapshot(now time.Time) (*WorkflowRunBo
 	return getWorkflowRunBotSHASnapshot(s.handle, now)
 }
 
+func (s *mysqlStore) PruneWorkflowRunBotSHAs(retention time.Duration) error {
+	return pruneWorkflowRunBotSHAs(s.handle, retention)
+}
+
 func (s *mysqlStore) GetWorkflowRunRecoveryCheckpoint(owner, repo string, hookID int64) (WorkflowRunRecoveryCheckpoint, error) {
 	return getWorkflowRunRecoveryCheckpoint(s.handle, owner, repo, hookID)
 }

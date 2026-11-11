@@ -277,6 +277,10 @@ func (s *sqliteStore) GetWorkflowRunBotSHASnapshot(now time.Time) (*WorkflowRunB
 	return getWorkflowRunBotSHASnapshot(s.handle, now)
 }
 
+func (s *sqliteStore) PruneWorkflowRunBotSHAs(retention time.Duration) error {
+	return pruneWorkflowRunBotSHAs(s.handle, retention)
+}
+
 func (s *sqliteStore) GetWorkflowRunRecoveryCheckpoint(owner, repo string, hookID int64) (WorkflowRunRecoveryCheckpoint, error) {
 	return getWorkflowRunRecoveryCheckpoint(s.handle, owner, repo, hookID)
 }

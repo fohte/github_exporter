@@ -49,6 +49,7 @@ type Store interface {
 type WorkflowRunBotSHAStore interface {
 	StoreWorkflowRunBotSHAEvent(*github.WorkflowRunEvent) error
 	GetWorkflowRunBotSHASnapshot(time.Time) (*WorkflowRunBotSHASnapshot, error)
+	PruneWorkflowRunBotSHAs(time.Duration) error
 }
 
 // New initializes a new database driver supported by current os.

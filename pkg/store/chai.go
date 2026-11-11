@@ -269,6 +269,10 @@ func (s *chaiStore) GetWorkflowRunBotSHASnapshot(now time.Time) (*WorkflowRunBot
 	return getWorkflowRunBotSHASnapshot(s.handle, now)
 }
 
+func (s *chaiStore) PruneWorkflowRunBotSHAs(retention time.Duration) error {
+	return pruneWorkflowRunBotSHAs(s.handle, retention)
+}
+
 func (s *chaiStore) GetWorkflowRunRecoveryCheckpoint(owner, repo string, hookID int64) (WorkflowRunRecoveryCheckpoint, error) {
 	return getWorkflowRunRecoveryCheckpoint(s.handle, owner, repo, hookID)
 }

@@ -60,6 +60,10 @@ func (s StaticStore) GetWorkflowRunBotSHASnapshot(time.Time) (*store.WorkflowRun
 	return &store.WorkflowRunBotSHASnapshot{}, nil
 }
 
+func (s StaticStore) PruneWorkflowRunBotSHAs(time.Duration) error {
+	return nil
+}
+
 func (s StaticStore) GetWorkflowRunRecoveryCheckpoint(owner, repo string, hookID int64) (store.WorkflowRunRecoveryCheckpoint, error) {
 	return store.WorkflowRunRecoveryCheckpoint{Owner: owner, Repo: repo, HookID: hookID}, nil
 }

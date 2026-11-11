@@ -290,6 +290,10 @@ func (s *postgresStore) GetWorkflowRunBotSHASnapshot(now time.Time) (*WorkflowRu
 	return getWorkflowRunBotSHASnapshot(s.handle, now)
 }
 
+func (s *postgresStore) PruneWorkflowRunBotSHAs(retention time.Duration) error {
+	return pruneWorkflowRunBotSHAs(s.handle, retention)
+}
+
 func (s *postgresStore) GetWorkflowRunRecoveryCheckpoint(owner, repo string, hookID int64) (WorkflowRunRecoveryCheckpoint, error) {
 	return getWorkflowRunRecoveryCheckpoint(s.handle, owner, repo, hookID)
 }
