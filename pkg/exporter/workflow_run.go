@@ -38,6 +38,7 @@ type WorkflowRunCollector struct {
 	Updated       *prometheus.Desc
 	Started       *prometheus.Desc
 	AttemptMax    *prometheus.Desc
+	BotSHAMax     *prometheus.Desc
 	AttemptHealth *prometheus.Desc
 }
 
@@ -105,6 +106,12 @@ func NewWorkflowRunCollector(logger *slog.Logger, client *github.Client, db stor
 			[]string{"repo", "workflow", "event", "window"},
 			nil,
 		),
+		BotSHAMax: prometheus.NewDesc(
+			"github_workflow_bot_shas_per_branch_max",
+			"Maximum number of distinct bot workflow run commit SHAs for any branch in the time window",
+			[]string{"repo", "window"},
+			nil,
+		),
 		AttemptHealth: prometheus.NewDesc(
 			"github_workflow_run_attempt_health",
 			"Workflow run attempt collection health state; condition values are 1 when active or healthy",
@@ -124,6 +131,7 @@ func (c *WorkflowRunCollector) Metrics() []*prometheus.Desc {
 		c.Updated,
 		c.Started,
 		c.AttemptMax,
+		c.BotSHAMax,
 		c.AttemptHealth,
 	}
 }
@@ -137,6 +145,7 @@ func (c *WorkflowRunCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.Updated
 	ch <- c.Started
 	ch <- c.AttemptMax
+	ch <- c.BotSHAMax
 	ch <- c.AttemptHealth
 }
 
@@ -250,8 +259,107 @@ func (c *WorkflowRunCollector) collectAttemptMetrics(ch chan<- prometheus.Metric
 		c.emitWorkflowRunAttemptMax(ch, snapshot, history)
 	}
 
+	c.collectWorkflowRunBotSHAMax(ch, now)
 	for _, state := range c.health.Snapshot() {
 		ch <- prometheus.MustNewConstMetric(c.AttemptHealth, prometheus.GaugeValue, state.Value, state.Condition)
+	}
+}
+
+func (c *WorkflowRunCollector) collectWorkflowRunBotSHAMax(ch chan<- prometheus.Metric, now time.Time) {
+	botSHAStore, ok := c.db.(store.WorkflowRunBotSHAStore)
+	if !ok {
+		c.health.SetDatabaseError("bot_shas", true)
+		c.logger.Error("Store does not support workflow run bot SHA metrics")
+		return
+	}
+	snapshot, snapshotErr := botSHAStore.GetWorkflowRunBotSHASnapshot(now)
+	var pruneErr error
+	if pruner, ok := c.db.(store.WorkflowRunBotSHAPruneStore); ok {
+		pruneErr = pruner.PruneWorkflowRunBotSHAs(c.config.WorkflowRuns.AttemptRetention)
+	}
+	if err := errors.Join(pruneErr, snapshotErr); err != nil {
+		c.health.SetDatabaseError("bot_shas", true)
+		c.logger.Error("Failed to collect workflow run bot SHAs", "err", err)
+		return
+	}
+	c.health.SetDatabaseError("bot_shas", false)
+
+	eventsByRepo := make(map[string][]store.WorkflowRunBotSHA)
+	for _, event := range snapshot.Events {
+		key := event.Owner + "/" + event.Repo
+		eventsByRepo[key] = append(eventsByRepo[key], event)
+	}
+	for _, repository := range snapshot.Repositories {
+		repo := repository.Owner + "/" + repository.Repo
+		for _, window := range []struct {
+			name string
+			size time.Duration
+		}{{name: "30m", size: 30 * time.Minute}, {name: "6h", size: 6 * time.Hour}} {
+			cutoff := now.Add(-window.size).UnixNano()
+			events := make([]store.WorkflowRunBotSHA, 0)
+			for _, event := range eventsByRepo[repo] {
+				if event.CreatedAtNS > cutoff && event.CreatedAtNS <= now.UnixNano() {
+					events = append(events, event)
+				}
+			}
+			slices.SortFunc(events, func(a, b store.WorkflowRunBotSHA) int {
+				if a.CreatedAtNS < b.CreatedAtNS {
+					return -1
+				}
+				if a.CreatedAtNS > b.CreatedAtNS {
+					return 1
+				}
+				if a.IsBot != b.IsBot {
+					if a.IsBot {
+						return 1
+					}
+					return -1
+				}
+				if a.Branch < b.Branch {
+					return -1
+				}
+				if a.Branch > b.Branch {
+					return 1
+				}
+				return strings.Compare(a.SHA, b.SHA)
+			})
+
+			branchCounts := make(map[string]int64)
+			for _, event := range events {
+				if event.IsBot {
+					branchCounts[event.Branch]++
+					continue
+				}
+				if event.Branch == event.DefaultBranch {
+					clear(branchCounts)
+				} else {
+					branchCounts[event.Branch] = 0
+				}
+			}
+
+			var maximum int64
+			branches := make([]string, 0)
+			for branch, count := range branchCounts {
+				if count > maximum {
+					maximum = count
+					branches = []string{branch}
+				} else if count == maximum && count > 0 {
+					branches = append(branches, branch)
+				}
+			}
+			slices.Sort(branches)
+			ch <- prometheus.MustNewConstMetric(c.BotSHAMax, prometheus.GaugeValue, float64(maximum), repo, window.name)
+			state := fmt.Sprint(maximum, branches)
+			changed := c.swapLoggedMaximum("bot-sha\x00"+repo+"\x00"+window.name, state)
+			if changed && maximum > 0 {
+				c.logger.Info("Workflow bot SHAs per branch changed",
+					"repo", repo,
+					"window", window.name,
+					"branches", branches,
+					"bot_shas", maximum,
+				)
+			}
+		}
 	}
 }
 

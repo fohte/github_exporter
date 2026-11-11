@@ -262,6 +262,9 @@ github_workflow_run_attempt_health{condition}
 github_workflow_run_attempts_per_branch_max{repo, workflow, event, window}
 : Maximum number of workflow run attempts for any branch in the time window
 
+github_workflow_bot_shas_per_branch_max{repo, window}
+: Maximum number of distinct bot workflow run commit SHAs for any branch in the time window
+
 github_workflow_run_created_timestamp{owner, repo, workflow, event, name, status, branch, number, run}
 : Timestamp when the workflow run have been created
 

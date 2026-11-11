@@ -52,6 +52,18 @@ func (s StaticStore) PruneWorkflowRunAttempts(time.Duration) error {
 	return nil
 }
 
+func (s StaticStore) StoreWorkflowRunBotSHAEvent(*github.WorkflowRunEvent) error {
+	return nil
+}
+
+func (s StaticStore) GetWorkflowRunBotSHASnapshot(time.Time) (*store.WorkflowRunBotSHASnapshot, error) {
+	return &store.WorkflowRunBotSHASnapshot{}, nil
+}
+
+func (s StaticStore) PruneWorkflowRunBotSHAs(time.Duration) error {
+	return nil
+}
+
 func (s StaticStore) GetWorkflowRunRecoveryCheckpoint(owner, repo string, hookID int64) (store.WorkflowRunRecoveryCheckpoint, error) {
 	return store.WorkflowRunRecoveryCheckpoint{Owner: owner, Repo: repo, HookID: hookID}, nil
 }

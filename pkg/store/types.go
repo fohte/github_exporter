@@ -33,6 +33,29 @@ type WorkflowRunAttemptSnapshot struct {
 	BranchCounts        []WorkflowRunAttemptBranchCount
 }
 
+// WorkflowRunBotSHASeries identifies a repository with workflow run events.
+type WorkflowRunBotSHASeries struct {
+	Owner string `db:"owner"`
+	Repo  string `db:"repo"`
+}
+
+// WorkflowRunBotSHA records the first run for a branch and commit SHA.
+type WorkflowRunBotSHA struct {
+	Owner         string `db:"owner"`
+	Repo          string `db:"repo"`
+	Branch        string `db:"branch"`
+	SHA           string `db:"sha"`
+	DefaultBranch string `db:"default_branch"`
+	IsBot         bool   `db:"is_bot"`
+	CreatedAtNS   int64  `db:"created_at_ns"`
+}
+
+// WorkflowRunBotSHASnapshot contains repositories and recent first-seen SHAs.
+type WorkflowRunBotSHASnapshot struct {
+	Repositories []WorkflowRunBotSHASeries
+	Events       []WorkflowRunBotSHA
+}
+
 // WorkflowRunRecoveryCheckpoint persists pagination state for one matching webhook.
 type WorkflowRunRecoveryCheckpoint struct {
 	Owner           string

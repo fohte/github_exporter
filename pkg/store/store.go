@@ -45,6 +45,17 @@ type Store interface {
 	Migrate() error
 }
 
+// WorkflowRunBotSHAStore stores and reads first-seen workflow run SHAs.
+type WorkflowRunBotSHAStore interface {
+	StoreWorkflowRunBotSHAEvent(*github.WorkflowRunEvent) error
+	GetWorkflowRunBotSHASnapshot(time.Time) (*WorkflowRunBotSHASnapshot, error)
+}
+
+// WorkflowRunBotSHAPruneStore prunes expired first-seen workflow run SHA records.
+type WorkflowRunBotSHAPruneStore interface {
+	PruneWorkflowRunBotSHAs(time.Duration) error
+}
+
 // New initializes a new database driver supported by current os.
 func New(dsn string, logger *slog.Logger) (Store, error) {
 	parsed, err := url.Parse(dsn)

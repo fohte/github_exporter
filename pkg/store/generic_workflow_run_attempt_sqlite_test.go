@@ -80,6 +80,146 @@ func TestWorkflowRunAttemptLedgerDeduplicatesAndUsesStartedAtWindows(t *testing.
 	}
 }
 
+func TestWorkflowRunBotSHALedgerAcceptsRequestedAndKeepsEarliestRun(t *testing.T) {
+	db := newWorkflowRunAttemptTestStore(t, filepath.Join(t.TempDir(), "bot-shas.sqlite"))
+	now := time.Now().UTC()
+	event := func(createdAt time.Time, actorType, actorLogin string) *github.WorkflowRunEvent {
+		result := &github.WorkflowRunEvent{
+			Action: testPointer("requested"),
+			Repo: &github.Repository{
+				Name:          testPointer("sample-repo"),
+				DefaultBranch: testPointer("main"),
+				Owner:         &github.User{Login: testPointer("example-org")},
+			},
+			WorkflowRun: &github.WorkflowRun{
+				CreatedAt:       &github.Timestamp{Time: createdAt},
+				HeadBranch:      testPointer("topic/example"),
+				HeadSHA:         testPointer("sha-example"),
+				Event:           testPointer("push"),
+				TriggeringActor: &github.User{Type: testPointer(actorType), Login: testPointer(actorLogin)},
+			},
+		}
+		return result
+	}
+
+	if err := db.StoreWorkflowRunBotSHAEvent(event(now, "Bot", "automation[bot]")); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.StoreWorkflowRunBotSHAEvent(event(now.Add(-time.Minute), "User", "person")); err != nil {
+		t.Fatal(err)
+	}
+	scheduled := event(now.Add(-2*time.Minute), "User", "person")
+	scheduled.WorkflowRun.Event = testPointer("schedule")
+	if err := db.StoreWorkflowRunBotSHAEvent(scheduled); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := db.GetWorkflowRunBotSHASnapshot(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Repositories) != 1 || len(snapshot.Events) != 1 {
+		t.Fatalf("snapshot has %d repositories and %d SHA events, want one each", len(snapshot.Repositories), len(snapshot.Events))
+	}
+	if snapshot.Events[0].IsBot || snapshot.Events[0].CreatedAtNS != now.Add(-time.Minute).UnixNano() {
+		t.Fatalf("first-seen SHA = %#v, want earliest human run", snapshot.Events[0])
+	}
+}
+
+func TestWorkflowRunBotSHALedgerIgnoresHumanReRun(t *testing.T) {
+	db := newWorkflowRunAttemptTestStore(t, filepath.Join(t.TempDir(), "bot-sha-rerun.sqlite"))
+	now := time.Now().UTC()
+	event := func(actorType, actorLogin string, attempt int) *github.WorkflowRunEvent {
+		return &github.WorkflowRunEvent{
+			Action: testPointer("requested"),
+			Repo: &github.Repository{
+				Name:          testPointer("sample-repo"),
+				DefaultBranch: testPointer("main"),
+				Owner:         &github.User{Login: testPointer("example-org")},
+			},
+			WorkflowRun: &github.WorkflowRun{
+				ID:              testPointer(int64(501)),
+				RunAttempt:      testPointer(attempt),
+				CreatedAt:       &github.Timestamp{Time: now},
+				HeadBranch:      testPointer("main"),
+				HeadSHA:         testPointer("sha-example"),
+				Event:           testPointer("push"),
+				TriggeringActor: &github.User{Type: testPointer(actorType), Login: testPointer(actorLogin)},
+			},
+		}
+	}
+
+	if err := db.StoreWorkflowRunBotSHAEvent(event("Bot", "automation[bot]", 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.StoreWorkflowRunBotSHAEvent(event("User", "person", 2)); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := db.GetWorkflowRunBotSHASnapshot(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Events) != 1 || !snapshot.Events[0].IsBot {
+		t.Fatalf("first-seen SHA after human re-run = %#v, want original bot run", snapshot.Events)
+	}
+}
+
+func TestWorkflowRunBotSHALedgerPrunesUsingConfiguredRetention(t *testing.T) {
+	db := newWorkflowRunAttemptTestStore(t, filepath.Join(t.TempDir(), "bot-sha-retention.sqlite"))
+	now := time.Now().UTC()
+	event := func(createdAt time.Time, sha, actorType, actorLogin string) *github.WorkflowRunEvent {
+		return &github.WorkflowRunEvent{
+			Action: testPointer("requested"),
+			Repo: &github.Repository{
+				Name:          testPointer("sample-repo"),
+				DefaultBranch: testPointer("main"),
+				Owner:         &github.User{Login: testPointer("example-org")},
+			},
+			WorkflowRun: &github.WorkflowRun{
+				CreatedAt:       &github.Timestamp{Time: createdAt},
+				HeadBranch:      testPointer("topic/example"),
+				HeadSHA:         testPointer(sha),
+				Event:           testPointer("push"),
+				TriggeringActor: &github.User{Type: testPointer(actorType), Login: testPointer(actorLogin)},
+			},
+		}
+	}
+	if err := db.StoreWorkflowRunBotSHAEvent(event(now.Add(-12*time.Hour), "sha-retained", "User", "person")); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.StoreWorkflowRunBotSHAEvent(event(now.Add(-25*time.Hour), "sha-pruned", "User", "person")); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PruneWorkflowRunBotSHAs(24 * time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	var retainedRows, expiredRows int
+	if err := db.handle.Get(&retainedRows, "SELECT COUNT(*) FROM workflow_run_bot_shas WHERE sha_key = ?", workflowRunHash("example-org", "sample-repo", "topic/example", "sha-retained")); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.handle.Get(&expiredRows, "SELECT COUNT(*) FROM workflow_run_bot_shas WHERE sha_key = ?", workflowRunHash("example-org", "sample-repo", "topic/example", "sha-pruned")); err != nil {
+		t.Fatal(err)
+	}
+	if retainedRows != 1 || expiredRows != 0 {
+		t.Fatalf("retained detail rows = %d, expired detail rows = %d; want 1, 0", retainedRows, expiredRows)
+	}
+	if err := db.StoreWorkflowRunBotSHAEvent(event(now.Add(-time.Minute), "sha-retained", "Bot", "automation[bot]")); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.StoreWorkflowRunBotSHAEvent(event(now.Add(-time.Minute), "sha-pruned", "Bot", "automation[bot]")); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := db.GetWorkflowRunBotSHASnapshot(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Events) != 1 || !snapshot.Events[0].IsBot || snapshot.Events[0].SHA != "sha-pruned" {
+		t.Fatalf("first-seen SHA after retention pruning = %#v, want a recent bot run", snapshot.Events)
+	}
+	if err := db.PruneWorkflowRunBotSHAs(5 * time.Hour); err == nil {
+		t.Fatal("retention shorter than the 6h window was accepted")
+	}
+}
+
 func TestWorkflowRunAttemptLedgerSurvivesRestartAndRejectsShortRetention(t *testing.T) {
 	database := filepath.Join(t.TempDir(), "attempts.sqlite")
 	startedAt := time.Now().UTC().Add(-time.Minute)
